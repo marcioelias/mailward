@@ -248,3 +248,66 @@ describe('deletion cascades (BR-16)', function () {
             ->and($deleted->admin)->toBe('root@example.test');
     });
 });
+
+describe('a grant only counts while it is live (Q1)', function () {
+    function grant(string $domain, array $overrides = []): void
+    {
+        DB::connection('vmail')->table('domain_admins')->insert([
+            'username' => 'da@example.test',
+            'domain' => $domain,
+            'created' => now(),
+            'modified' => now(),
+            'expired' => '9999-12-31 00:00:00',
+            'active' => 1,
+            ...$overrides,
+        ]);
+    }
+
+    function actorWithGrants(): Mailbox
+    {
+        return new Mailbox(['username' => 'da@example.test', 'isadmin' => true, 'isglobaladmin' => false]);
+    }
+
+    it('ignores a grant that has been switched off', function () {
+        makeDomain('suspended.test');
+        grant('suspended.test', ['active' => 0]);
+
+        $this->actingAs(actorWithGrants())->get('/domains')->assertInertia(
+            fn (AssertableInertia $page) => $page->has('domains.data', 0)
+        );
+    });
+
+    it('ignores a grant whose expiry has passed', function () {
+        makeDomain('lapsed.test');
+        grant('lapsed.test', ['expired' => now()->subDay()]);
+
+        $this->actingAs(actorWithGrants())->get('/domains')->assertInertia(
+            fn (AssertableInertia $page) => $page->has('domains.data', 0)
+        );
+    });
+
+    it('keeps the live grants of an administrator whose other grant lapsed', function () {
+        // The columns are on the grant, not on the person: one domain going
+        // away must not take the others with it.
+        makeDomain('live.test');
+        makeDomain('lapsed.test');
+        grant('live.test');
+        grant('lapsed.test', ['active' => 0]);
+
+        $this->actingAs(actorWithGrants())->get('/domains')->assertInertia(
+            fn (AssertableInertia $page) => $page->has('domains.data', 1)
+                ->where('domains.data.0.domain', 'live.test')
+        );
+    });
+
+    it('still lets an administrator with no live grant sign in and see nothing', function () {
+        // BR-A03: an empty screen, never an error. This is why the answer is
+        // to ignore the grant rather than to deny the login.
+        makeDomain('lapsed.test');
+        grant('lapsed.test', ['active' => 0]);
+
+        $this->actingAs(actorWithGrants())->get('/domains')->assertOk()->assertInertia(
+            fn (AssertableInertia $page) => $page->has('domains.data', 0)
+        );
+    });
+});

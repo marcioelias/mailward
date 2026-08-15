@@ -26,3 +26,8 @@ _ide_helper.php
 Homestead.json
 Homestead.yaml
 Thumbs.db
+
+# Working translation of docs/reference/decisions-needed.md, for reading while
+# answering. The English file under docs/ is the canonical one; this is a copy
+# that would only drift if it were committed.
+/decisions-needed.pt-BR.md

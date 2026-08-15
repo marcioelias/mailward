@@ -77,6 +77,27 @@ final class Actor
             ->table('domain_admins')
             ->where('username', $address)
             ->where('domain', '<>', 'ALL')
+
+            /*
+             * A suspended or expired grant confers nothing (Q1, answered
+             * 2026-08-15). Nothing sourced says iRedMail reads either column,
+             * so Mailward and iRedAdmin may disagree about who administers a
+             * domain — the trade accepted deliberately, because an
+             * administrative panel should honour a revocation it can see.
+             *
+             * `active` is compared against the integer, never a PHP boolean:
+             * PostgreSQL rejects a bool against INT2 where MySQL accepts it
+             * (docs/reference/schema-type-matrix.md, D4).
+             */
+            ->where('active', 1)
+
+            /*
+             * Expiry is a comparison against now, never equality against a
+             * constant: the two drivers ship different "never expires"
+             * sentinels (D2).
+             */
+            ->where('expired', '>', now())
+
             ->pluck('domain')
             ->all();
 
