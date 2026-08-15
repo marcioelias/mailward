@@ -40,17 +40,26 @@
             "composer install",
             "@php -r \"file_exists('.env') || copy('.env.example', '.env');\"",
             "@php artisan key:generate",
+            "./scripts/dev-databases.sh",
             "@php artisan migrate --force",
-            "npm install --ignore-scripts",
-            "npm run build"
+            "pnpm install",
+            "pnpm run build"
         ],
         "dev": [
             "Composer\\Config::disableProcessTimeout",
             "@php artisan dev"
         ],
         "test": [
+            "@test:mysql",
+            "@test:pgsql"
+        ],
+        "test:mysql": [
             "@php artisan config:clear --ansi @no_additional_args",
-            "@php artisan test"
+            "VMAIL_DB_DRIVER=mysql VMAIL_DB_PORT=3306 VMAIL_DB_USERNAME=root ./vendor/bin/pest"
+        ],
+        "test:pgsql": [
+            "@php artisan config:clear --ansi @no_additional_args",
+            "VMAIL_DB_DRIVER=pgsql VMAIL_DB_PORT=5432 VMAIL_DB_USERNAME=postgres ./vendor/bin/pest"
         ],
         "post-autoload-dump": [
             "Illuminate\\Foundation\\ComposerScripts::postAutoloadDump",

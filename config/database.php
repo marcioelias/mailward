@@ -3,6 +3,25 @@
 use Illuminate\Support\Str;
 use Pdo\Mysql;
 
+/*
+ * Both connections accept more than one driver, and a few settings are not
+ * portable between them: PostgreSQL rejects the charset MySQL requires, and
+ * they listen on different ports. Deriving those from the driver means
+ * pointing a connection at the other backend is one variable, not four, and
+ * removes a class of misconfiguration that only fails at connection time.
+ *
+ * Every derived value remains overridable by its own variable.
+ */
+$driverDefaults = static fn (string $driver): array => $driver === 'pgsql'
+    ? ['port' => '5432', 'charset' => 'utf8']
+    : ['port' => '3306', 'charset' => 'utf8mb4'];
+
+$mailwardDriver = env('DB_DRIVER', 'pgsql');
+$mailwardDefaults = $driverDefaults($mailwardDriver);
+
+$vmailDriver = env('VMAIL_DB_DRIVER', 'mysql');
+$vmailDefaults = $driverDefaults($vmailDriver);
+
 return [
 
     /*
@@ -39,15 +58,15 @@ return [
          * See docs/01-architecture.md §3.
          */
         'mailward' => [
-            'driver' => env('DB_DRIVER', 'pgsql'),
+            'driver' => $mailwardDriver,
             'url' => env('DB_URL'),
             'host' => env('DB_HOST', '127.0.0.1'),
-            'port' => env('DB_PORT', '5432'),
+            'port' => env('DB_PORT', $mailwardDefaults['port']),
             'database' => env('DB_DATABASE', 'mailward'),
             'username' => env('DB_USERNAME', 'mailward'),
             'password' => env('DB_PASSWORD', ''),
             'unix_socket' => env('DB_SOCKET', ''),
-            'charset' => env('DB_CHARSET', 'utf8'),
+            'charset' => env('DB_CHARSET', $mailwardDefaults['charset']),
             'collation' => env('DB_COLLATION'),
             'prefix' => '',
             'prefix_indexes' => true,
@@ -72,15 +91,15 @@ return [
          * real (docs/reference/schema-type-matrix.md).
          */
         'vmail' => [
-            'driver' => env('VMAIL_DB_DRIVER', 'mysql'),
+            'driver' => $vmailDriver,
             'url' => env('VMAIL_DB_URL'),
             'host' => env('VMAIL_DB_HOST', '127.0.0.1'),
-            'port' => env('VMAIL_DB_PORT', '3306'),
+            'port' => env('VMAIL_DB_PORT', $vmailDefaults['port']),
             'database' => env('VMAIL_DB_DATABASE', 'vmail'),
             'username' => env('VMAIL_DB_USERNAME', 'mailward'),
             'password' => env('VMAIL_DB_PASSWORD', ''),
             'unix_socket' => env('VMAIL_DB_SOCKET', ''),
-            'charset' => env('VMAIL_DB_CHARSET', 'utf8mb4'),
+            'charset' => env('VMAIL_DB_CHARSET', $vmailDefaults['charset']),
             'collation' => env('VMAIL_DB_COLLATION'),
             'prefix' => '',
             'prefix_indexes' => true,
