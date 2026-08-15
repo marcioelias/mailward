@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use Illuminate\Support\Facades\App;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Request;
 use Spatie\Activitylog\Models\Activity;
@@ -28,6 +29,9 @@ use Spatie\Activitylog\Models\Activity;
  */
 final class AuditEntry extends Activity
 {
+    /** The actor recorded for a write made outside a web request (Q10). */
+    public const CONSOLE_ACTOR = 'console';
+
     protected $table = 'audit_log';
 
     protected static function booted(): void
@@ -40,7 +44,7 @@ final class AuditEntry extends Activity
          */
         self::creating(function (self $entry): void {
             $entry->actor ??= self::currentActor();
-            $entry->ip_address ??= Request::ip();
+            $entry->ip_address ??= self::currentOrigin();
         });
     }
 
@@ -51,6 +55,24 @@ final class AuditEntry extends Activity
         // A write with no authenticated actor is a console run — the
         // documented recovery path in docs/policies/authorization.md §5 is
         // exactly that, and it still has to be attributable.
-        return is_string($identifier) && $identifier !== '' ? $identifier : 'console';
+        return is_string($identifier) && $identifier !== '' ? $identifier : self::CONSOLE_ACTOR;
+    }
+
+    /**
+     * Where the write came from. A console run has no IP, so it records the
+     * only identity the invocation actually has: the operating system user and
+     * the host it ran on (Q10, answered 2026-08-15). Writing the target's own
+     * address there instead would make the log claim an account promoted
+     * itself.
+     */
+    private static function currentOrigin(): string
+    {
+        if (App::runningInConsole()) {
+            $user = get_current_user();
+
+            return sprintf('%s@%s', $user !== '' ? $user : 'unknown', gethostname() ?: 'unknown');
+        }
+
+        return (string) Request::ip();
     }
 }

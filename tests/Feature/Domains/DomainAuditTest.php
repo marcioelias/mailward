@@ -94,3 +94,61 @@ it('attributes a write made outside a request to the console', function () {
 
     expect(AuditEntry::query()->latest('id')->first()->actor)->toBe('console');
 });
+
+it('records the counts a cascade removed, in one entry (Q9)', function () {
+    makeDomain('doomed.test');
+
+    DB::connection('vmail')->table('mailbox')->insert([
+        'username' => 'user@doomed.test', 'domain' => 'doomed.test', 'password' => '{PLAIN}x',
+        'active' => 1, 'created' => now(), 'modified' => now(), 'expired' => '9999-12-31 00:00:00',
+    ]);
+    DB::connection('vmail')->table('alias')->insert([
+        'address' => 'sales@doomed.test', 'domain' => 'doomed.test',
+        'created' => now(), 'modified' => now(), 'expired' => '9999-12-31 00:00:00', 'active' => 1,
+    ]);
+
+    $this->actingAs(globalAdmin())->delete('/domains/doomed.test');
+
+    $entries = AuditEntry::query()->where('event', 'deleted')->get();
+
+    // One entry for a cascade of any size, naming what it removed.
+    expect($entries)->toHaveCount(1)
+        ->and($entries->first()->properties['old']['removed']['mailboxes'])->toBe(1)
+        ->and($entries->first()->properties['old']['removed']['aliases'])->toBe(1);
+});
+
+it('does not let a deleted account keep its grants over other domains (Q6)', function () {
+    // Delete the domain, re-create an administrator at the same address, and
+    // without this the new account silently regains every domain the old one
+    // administered.
+    makeDomain('doomed.test');
+    makeDomain('elsewhere.test');
+
+    DB::connection('vmail')->table('mailbox')->insert([
+        'username' => 'admin@doomed.test', 'domain' => 'doomed.test', 'password' => '{PLAIN}x',
+        'isadmin' => 1, 'active' => 1, 'created' => now(), 'modified' => now(),
+        'expired' => '9999-12-31 00:00:00',
+    ]);
+    DB::connection('vmail')->table('domain_admins')->insert([
+        'username' => 'admin@doomed.test', 'domain' => 'elsewhere.test',
+        'created' => now(), 'modified' => now(), 'expired' => '9999-12-31 00:00:00', 'active' => 1,
+    ]);
+
+    $this->actingAs(globalAdmin())->delete('/domains/doomed.test');
+
+    expect(DB::connection('vmail')->table('domain_admins')
+        ->where('username', 'admin@doomed.test')->count())->toBe(0);
+});
+
+it('records the operating system user and host for a console write (Q10)', function () {
+    // A console run has no IP. Recording the target's own address as the actor
+    // would make the log claim an account promoted itself, so it records the
+    // only identity the invocation actually has.
+    Audit::record('created', makeDomain('one.test'));
+
+    $entry = AuditEntry::query()->latest('id')->first();
+
+    expect($entry->actor)->toBe(AuditEntry::CONSOLE_ACTOR)
+        ->and($entry->ip_address)->toContain('@')
+        ->and($entry->ip_address)->not->toBe('127.0.0.1');
+});

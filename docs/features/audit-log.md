@@ -31,13 +31,14 @@ append-only, and deliberately keeps references to mailboxes that no longer exist
 | Actor | Interaction |
 |---|---|
 | Every administrator | *writes* entries implicitly, by performing any write or by being denied one |
-| Reader of the log | **undecided — OQ-AUD-01.** No policy assigns a scope to `audit_log` |
+| Global admin | the **only** reader of the log in v1 (BR-16) |
+| Domain admin | *writes* entries like any administrator; **reads none of them** (BR-16) |
 | Mail user | none — cannot sign in (`policies/authorization.md` §1) |
 
 `audit_log` is a Mailward-owned entity (`02-domain.md` §13), not a domain-owned
 resource, so the scope rule of `policies/authorization.md` §2 does not reach it
-as written. Who may read it, and under what scope, is OQ-AUD-01 and is not
-decided here.
+as written. Rather than extend the scope rule to a resource it was not written
+for, v1 puts the whole log behind the global-admin flag: BR-16.
 
 ## Business Rules
 
