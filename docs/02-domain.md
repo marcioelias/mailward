@@ -329,12 +329,20 @@ by ordinary migrations.
 |---|---|
 | `panel_profiles` | Per-admin panel state, keyed by email address: preferences, last panel login |
 | `two_factor_secrets` | TOTP secrets, keyed by email address |
-| `audit_log` | Every write Mailward performs: actor, action, target, before/after, IP, timestamp |
+| `audit_log` | Every write Mailward performs: actor, action, target, before/after, IP, timestamp. What "every write" covers is enumerated in `docs/features/audit-log.md` BR-17 and BR-18 |
 | `settings` | Instance configuration, including the organisation logo |
 | `sessions`, `jobs`, `cache` | Laravel infrastructure |
 
 **BR:** references to mail accounts are plain address strings with no foreign
 key — cross-database constraints are impossible. Deleting a mailbox must
 explicitly clean up the rows that reference it, except `audit_log`, which is
-append-only and deliberately retains references to accounts that no longer
-exist.
+exempt from that cleanup and deliberately retains references to accounts that no
+longer exist.
+
+**BR:** no `audit_log` entry is ever modified, and none is ever deleted
+individually. Entries older than a configured retention window are removed
+wholesale by a scheduled job, and the default window means "never prune"
+(`docs/features/audit-log.md` BR-05 and BR-21;
+`docs/reference/decisions-needed.md` Q11, answered 2026-08-15). This replaces
+the unqualified "append-only" this section previously asserted: the guarantee
+against tampering is unchanged, the guarantee against loss now has a horizon.

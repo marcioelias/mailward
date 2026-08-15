@@ -112,6 +112,25 @@ feature implements its §6 login gate and narrows nothing in it.
   closed. Authorization is re-evaluated on the server on every request,
   regardless of what the interface offered
   (`policies/authorization.md` §4).
+- **BR-19** — **A successful sign-in is recorded in `audit_log`**, as one entry,
+  even though it is neither a write to `vmail` nor a failure: a sign-in timeline
+  is what an audit reader looks for beside the failures
+  (`docs/features/audit-log.md` BR-17, item 3;
+  `docs/reference/decisions-needed.md` Q8, answered 2026-08-15). Three
+  boundaries this draws, in the same breath, because each is a case someone will
+  otherwise assume the opposite of:
+  - the `panel_profiles` write the same request performs (BR-15) is **not**
+    separately recorded — one sign-in produces one entry, never two
+    (`docs/features/audit-log.md` BR-18);
+  - a failure at **step 2** is recorded, as an authorization failure, which is
+    BR-06 and is unchanged;
+  - a failure at **step 1** — unknown address, wrong password, inactive,
+    expired, an unverifiable scheme (BR-12) — and a throttled request (BR-08)
+    are **not** recorded in `audit_log`. They are authentication outcomes, not
+    administrative acts, and they go to the application log. Recording them
+    would also give the log a row per guess, which is what a rate limiter is
+    for. Neither the entry nor the log line ever carries the password or the
+    hash (BR-17).
 
 ## Data
 
@@ -136,7 +155,7 @@ of the login gate (BR-03), and see OQ-AUTH-05.
 |---|---|
 | `sessions` | the panel session |
 | `panel_profiles` | last panel login (BR-15) |
-| `audit_log` | authorization failures at step 2 (BR-06); see OQ-AUTH-06 |
+| `audit_log` | successful sign-ins, and authorization failures at step 2 (BR-06, BR-19). Step-1 failures and throttled requests are not written here (BR-19) |
 | `two_factor_secrets` | read only if 2FA is in v1 — OQ-AUTH-03 |
 
 The remember-me token store is required by `01-architecture.md` §5 but is not
@@ -253,6 +272,15 @@ anonymous --submit--> [step 1: credentials]
 - **AC-19** — Given the login page, when it renders, then no prop, error message
   or response header distinguishes an existing address from an unknown one.
   *(BR-07)*
+- **AC-20** — Given correct credentials for an account with `isadmin = 1`, when
+  the sign-in succeeds, then exactly one `audit_log` entry exists for that
+  request — the sign-in — and no second entry exists for the `panel_profiles`
+  write it performed. *(BR-19, BR-15)*
+- **AC-21** — Given an unknown address, a wrong password for a real
+  administrator, an inactive administrator, an expired administrator and a
+  throttled request, when each is submitted, then `audit_log` is unchanged by
+  all five; and given correct credentials for a mailbox with no admin flag, then
+  one authorization-failure entry is written. *(BR-19, BR-06)*
 
 ## Out of Scope
 
@@ -301,12 +329,6 @@ anonymous --submit--> [step 1: credentials]
   revoke a grant? It changes whether such an administrator is denied, or signs in
   with a narrowed scope. `docs/reference/open-questions-research.md` (OQ-02,
   Still unknown) records that nothing sourced says iRedMail reads either column.
-- **OQ-AUTH-06** — Is a **successful** sign-in recorded in `audit_log`?
-  `policies/authorization.md` §7 mandates recording writes and authorization
-  failures, and a sign-in is neither a write to `vmail` nor a failure — yet it is
-  precisely what an audit reader would look for beside the failures. It does
-  write `panel_profiles` (BR-15), which makes the ambiguity concrete; see
-  `docs/features/audit-log.md` OQ-AUD-01.
 - **OQ-AUTH-07** — Is this feature implementable at all before OQ-04 is answered
   against a real install? `docs/reference/open-questions-research.md` states that
   OQ-04 blocks the custom user provider and therefore login itself. The

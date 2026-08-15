@@ -118,8 +118,9 @@ governs a domain admin's **visibility** here and never grants them a write
 - **BR-17** — The same operation removes the rows in **Mailward's own** database
   keyed by an address of `D` — `panel_profiles`, `two_factor_secrets` and any
   other table keyed by an address (`02-domain.md` §13). `audit_log` is the
-  exception: it is append-only and deliberately keeps its references to
-  addresses that no longer exist (`02-domain.md` §13). No transaction can span
+  exception: it is exempt from that cleanup and deliberately keeps its
+  references to addresses that no longer exist (`02-domain.md` §13,
+  `docs/features/audit-log.md` BR-08). No transaction can span
   the two databases (`01-architecture.md` §3), so the Mailward-side deletes
   commit **first** and the `vmail` transaction of BR-16 is the last commit, and
   the whole operation is **idempotent on retry**: repeating it after a partial
@@ -176,6 +177,40 @@ governs a domain admin's **visibility** here and never grants them a write
   asked for. The operation is therefore genuinely reversible — and it **depends
   on Postfix and Dovecot honouring the domain-level flag**, which is not
   confirmed and is held as OQ-DOM-03.
+- **BR-22** — **A domain cannot be renamed, in v1 or by any workaround this
+  feature offers.** `domain.domain` is written on create and never appears in an
+  `UPDATE`; there is no rename endpoint, no rename field and no rename control
+  (`docs/reference/decisions-needed.md` Q5, answered 2026-08-15). The reason is
+  that a rename is not a rename: the name is denormalised into `mailbox.domain`,
+  `alias.domain`, `forwardings.domain`, `forwardings.dest_domain`,
+  `domain_admins.domain`, `used_quota.domain` and `last_login.domain`, and is
+  embedded again inside `mailbox.username`, `alias.address` and `maildir` —
+  which Dovecot resolves to a directory that already exists on disk. There is no
+  foreign key to propagate any of it (BR-14). The **interface must say this
+  plainly**: the only way to change a domain's name is to delete it and create
+  the new one, and deleting it destroys every account inside it through the
+  cascade of BR-16 — every mailbox, with a `deleted_mailboxes` row each, so
+  iRedMail's cron removes the files. That sentence appears where an
+  administrator would look for a rename, on the edit form. It is not presented
+  as a workaround, because it is not one; it is a data-loss operation with the
+  same wording as the delete confirmation.
+- **BR-23** — A `domain` row's name **may** also exist as an `alias_domain` row,
+  and this feature refuses no create on that ground: it performs no cross-table
+  uniqueness check against `alias_domain`, `mailbox` or `alias`
+  (`docs/reference/decisions-needed.md` Q4, answered 2026-08-15, option C). The
+  only uniqueness this feature enforces is BR-02, within `domain` itself.
+  Strictness is spent on the other half of that decision instead: **locality**,
+  the rule that every address Mailward writes must have a domain part present in
+  `domain`. This feature owns the table that rule is checked against — it is
+  enforced by the features that write addresses (`docs/features/mailboxes.md`
+  BR-26, `docs/features/aliases.md` BR-16,
+  `docs/features/mailbox-aliases-forwardings.md` BR-16) — with one consequence
+  here: **deleting a domain is the operation that would strand them**, and it
+  does not, because BR-16 removes every address in the domain in the same
+  transaction. What delivery does when a name is both a `domain` and an
+  `alias_domain` is a property of the mail server, and the probe that observes
+  it (`docs/reference/decisions-needed.md` E7) is informational rather than
+  blocking.
 
 ## Data
 
@@ -185,7 +220,7 @@ name). `$timestamps = false`; the columns are `created` / `modified`
 
 | Column | Used by this feature |
 |---|---|
-| `domain` | primary key, created, never updated in v1 (OQ-DOM-08) |
+| `domain` | primary key, created, never updated (BR-22) |
 | `description` | read/write, BR-11 |
 | `disclaimer` | read/write, BR-11 |
 | `aliases` | read/write, BR-03, BR-12 |
@@ -277,7 +312,7 @@ errors, nothing written; duplicate domain (BR-02) → validation error on
 `domain`.
 
 **`PUT /domains/{domain}`** — same fields except `domain`, which is not
-updatable in v1 (OQ-DOM-08). Error cases: caller is not a global admin (BR-19) →
+updatable and carries the statement required by BR-22 in its place. Error cases: caller is not a global admin (BR-19) →
 403 for a domain in their scope, 404 for one outside it; unknown domain → 404,
 so the scope does not leak existence; validation failure → redirect back with
 errors; lowering `aliases` or `mailboxes` below the current
@@ -322,7 +357,7 @@ Expired is not a state Mailward drives: it is the condition `expired <= now()`
 Mailward. v1 offers no transition into or out of it (OQ-DOM-11).
 
 Forbidden: any transition out of Deleted; writing `active` as `true`/`false`
-(BR-10); changing `domain` (OQ-DOM-08).
+(BR-10); changing `domain` (BR-22).
 
 ## Acceptance Criteria
 
@@ -453,6 +488,21 @@ Each runs against **both** MySQL and PostgreSQL (`01-architecture.md` §8).
   `active` is still its original value — in particular the mailbox that was
   inactive before the disable is still inactive, and was never switched on by
   the round trip (BR-21).
+- **AC-31**: given an existing `example.com`, when a global admin submits
+  `PUT /domains/example.com` with a different `domain` value in the payload,
+  then the primary key is unchanged, no `UPDATE` statement issued by the request
+  contains the `domain` column, and the application's routes resolve nothing for
+  renaming a domain (BR-22).
+- **AC-32**: given a global admin on `GET /domains/example.com/edit`, when the
+  page renders, then it states that the domain name cannot be changed and that
+  the only equivalent — delete and re-create — destroys every account in the
+  domain; and the page offers no rename control, no rename field and no link
+  that performs one (BR-22).
+- **AC-33**: given `example.net` already exists as an `alias_domain` row
+  targeting `example.com`, when a global admin creates a `domain` row named
+  `example.net`, then the create succeeds, both rows exist, and no statement
+  executed by the create queried `alias_domain`, `mailbox` or `alias` for a
+  conflicting name (BR-23).
 
 ## Out of Scope
 
@@ -466,7 +516,9 @@ Each runs against **both** MySQL and PostgreSQL (`01-architecture.md` §8).
 - Per-domain iRedAPD, Amavis or mailing-list settings (`00-overview.md` §5
   Later).
 - `domain.settings` and `domain.quota` (BR-06, BR-07).
-- Renaming a domain (OQ-DOM-08).
+- Renaming a domain (BR-22) — including any "rename" implemented as
+  delete-and-recreate on the administrator's behalf. The interface states what
+  the manual equivalent costs; it does not perform it.
 - Setting or clearing a domain expiry date (BR-09).
 - Deactivating the accounts inside a domain when the domain is disabled, and
   recording their prior state anywhere so it could be restored (BR-21).
@@ -485,11 +537,6 @@ Each runs against **both** MySQL and PostgreSQL (`01-architecture.md` §8).
   honoured, the decision in BR-21 has to be revisited, because a "disabled"
   domain that still receives mail and still lets its users log in is worse than
   having no disable action at all.
-- **OQ-DOM-08** — Can a domain be renamed? `domain.domain` is the primary key
-  and is denormalised into `mailbox.domain`, `alias.domain`,
-  `forwardings.domain` and `forwardings.dest_domain`, `domain_admins.domain`,
-  `used_quota.domain` and `last_login.domain`, with no foreign key to propagate
-  a change. Nothing in `docs/` says whether renaming is supported.
 - **OQ-DOM-10** — What values are valid for `domain.transport`? Both schema
   files declare it free-text `VARCHAR` with no constraint
   (`schema-type-matrix.md`, Unverified 10), so there is nothing to validate

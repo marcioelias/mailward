@@ -112,9 +112,12 @@ feature narrows nothing in it, and adds no role.
   time-zone-converted on MySQL only (matrix D11).
 - **BR-18** — Deleting a mailbox explicitly removes the rows in Mailward's own
   database that reference the address — there are no cross-database foreign keys
-  to do it. `audit_log` is the exception: it is append-only and deliberately
-  keeps references to accounts that no longer exist (`02-domain.md` §13,
-  `01-architecture.md` §3).
+  to do it. `audit_log` is the exception: it is exempt from that cleanup and
+  deliberately keeps references to accounts that no longer exist
+  (`02-domain.md` §13, `01-architecture.md` §3,
+  `docs/features/audit-log.md` BR-08). Its entries are never modified and never
+  deleted individually; they leave only through the age-based retention prune of
+  `docs/features/audit-log.md` BR-21, which knows nothing about this deletion.
 - **BR-19** — Deactivating, deleting or demoting a mailbox is additionally
   subject to BR-A01 and BR-A02 of `docs/policies/authorization.md` §5, checked
   inside the same transaction as the change.
@@ -146,6 +149,8 @@ feature narrows nothing in it, and adds no role.
   5. every `forwardings` row with `is_list = 1` whose `forwarding` column is
      `A` — the account's membership of any standalone alias account, leaving the
      alias accounts themselves intact (`docs/features/aliases.md` BR-02);
+  6. every `domain_admins` row whose `username` is `A` — every domain the
+     account administered, and the `'ALL'` sentinel row if it held one (BR-27);
   and inserts exactly one `deleted_mailboxes` row (BR-16, BR-17, BR-24) so
   iRedMail's cron removes the files. Rows carrying `is_maillist = 1` are not
   touched: mailing lists are unmodelled in v1 (`02-domain.md` §12).
@@ -170,6 +175,38 @@ feature narrows nothing in it, and adds no role.
   row is already gone. `deleted_mailboxes` cannot enforce that itself: MySQL
   declares no primary key and no unique index on it (BR-17, matrix D10)
   (`docs/reference/decisions-needed.md` D1).
+- **BR-26** — **The domain part of `mailbox.username` must already exist as a
+  row in `domain`**, checked with an explicit `EXISTS` on the `vmail` connection
+  inside the same transaction as the insert, on the already lower-cased value
+  (BR-02), and refused as a validation error on the address field. It is the
+  same rule `02-domain.md` §3 already imposes on `alias_domain.target_domain`,
+  and it catches the typo that otherwise creates an account the server will
+  never deliver to. A row in `alias_domain` does **not** satisfy it: an alias
+  domain has no accounts of its own and its mail resolves to the target domain's
+  accounts (`02-domain.md` §3), so a mailbox created inside one would be
+  unreachable. In practice the create form already picks a domain the actor may
+  create in (Contracts), so this rule is what makes that list authoritative
+  rather than advisory. **Collisions are not refused**: `mailbox.username` may
+  equal an existing `alias.address`, and no cross-table uniqueness check against
+  `alias`, `forwardings` or `alias_domain` is performed — BR-03's uniqueness is
+  within `mailbox` alone. Which of the two wins at delivery is a property of the
+  mail server, and the probe that observes it
+  (`docs/reference/decisions-needed.md` E7) is informational rather than
+  blocking (`docs/reference/decisions-needed.md` Q4, answered 2026-08-15,
+  option C).
+- **BR-27** — **Deleting a mailbox also removes that account's `domain_admins`
+  rows**, in the same `vmail` transaction as the rest of BR-23 (item 6). This is
+  a security rule, not tidiness: `domain_admins` is keyed by address and nothing
+  else, so leaving the rows behind means that deleting `admin@example.com` and
+  then re-creating the same address silently regains every domain the old
+  account administered — a privilege escalation performed by an administrator
+  who believed they were creating a new, unprivileged account. Removing them
+  makes the mailbox cascade symmetric with the domain cascade, which already
+  removes the rows keyed by `domain` (`docs/policies/authorization.md` BR-A03,
+  `docs/features/domains.md` BR-13). The deletion is still subject to BR-A01
+  (BR-19): the last global admin cannot be deleted, so this rule can never be
+  the step that empties the panel of administrators
+  (`docs/reference/decisions-needed.md` Q6, answered 2026-08-15).
 
 ## Data
 
@@ -194,12 +231,17 @@ BR-04 only; on delete, every row enumerated in BR-23. Outside those two paths,
 rows in that table belong to `docs/features/mailbox-aliases-forwardings.md` or
 to the standalone alias feature.
 
+**Also written, on delete only** — `vmail.domain_admins`: the rows keyed by the
+deleted address (BR-23 item 6, BR-27). Every other write to that table belongs
+to `docs/features/domain-admins.md`.
+
 **Insert-only** — `vmail.deleted_mailboxes`: `username`, `domain`, `maildir`,
 `bytes`, `messages`, `admin` (the acting address), `delete_date`.
 
 **Read-only** — `vmail.used_quota` (`username`, `bytes`, `messages`;
 `domain` never read), `vmail.last_login` (`username`, `imap`, `pop3`, `lda`),
-`vmail.domain` (`mailboxes`, `maxquota`, `active`, `expired`).
+`vmail.domain` (`domain` for the locality check of BR-26, plus `mailboxes`,
+`maxquota`, `active`, `expired`).
 
 **Mailward's own database** — `panel_profiles`, `two_factor_secrets` and any
 other table keyed by the address are cleaned on delete; `audit_log` is written
@@ -229,9 +271,9 @@ only; every request is authorized again on the server
 (`docs/policies/authorization.md` §4).
 
 Error cases: 403 for a resource outside the actor's scope (logged per BR-20);
-422 with field errors for validation, including the uniqueness check of BR-03
-and the limit of BR-05; 409-equivalent (validation error) when BR-A01 would be
-violated.
+422 with field errors for validation, including the uniqueness check of BR-03,
+the locality check of BR-26 and the limit of BR-05; 409-equivalent (validation
+error) when BR-A01 would be violated.
 
 ## States
 
@@ -349,6 +391,26 @@ violated.
   the Mailward-side rows of BR-18 were committed, when the deletion is retried,
   then it succeeds, every row named in BR-23 is gone, and exactly one
   `deleted_mailboxes` row exists for that address — never two (BR-25).
+- **AC-28** — Given no `domain` row for `nope.test`, when a create is submitted
+  for `user@nope.test`, then it fails validation on the address and neither a
+  `mailbox` row nor a `forwardings` row is written; and given `alias.test`
+  exists only as an `alias_domain` row, when `user@alias.test` is submitted,
+  then it fails validation the same way — an alias domain does not satisfy
+  locality (BR-26).
+- **AC-29** — Given a standalone `alias` row `sales@a.com`, when a mailbox
+  `sales@a.com` is created, then the create succeeds, both rows coexist, and no
+  statement executed by the create queried `alias`, `forwardings` or
+  `alias_domain` for a conflicting name (BR-26, BR-03).
+- **AC-30** — Given `admin@a.com` with `isadmin = 1`, two per-domain
+  `domain_admins` rows and a second global admin existing, when the mailbox is
+  deleted, then no `domain_admins` row naming `admin@a.com` remains; and when a
+  new mailbox is created at the same address, then it holds no `domain_admins`
+  row, `isadmin = 0` and `isglobaladmin = 0`, and it administers nothing
+  (BR-27).
+- **AC-31** — Given the sole global admin, when its deletion is attempted, then
+  the request is refused by BR-A01, the `mailbox` row is unchanged, and its
+  `domain_admins` rows — including the `'ALL'` row — are all still present: the
+  cascade of BR-27 never runs on a refused delete (BR-19, BR-27).
 
 ## Out of Scope
 
@@ -411,14 +473,3 @@ violated.
   any of them move together — in particular, whether `enablesogo` gates the
   three SOGo character columns? The scope line says only "enabled services", and
   `02-domain.md` §4 enumerates the columns without grouping them.
-- **OQ-M9** — Does deleting a mailbox also remove its `domain_admins` rows — the
-  grants keyed by `username`, for domains other than its own? BR-23 enumerates
-  the `vmail` cascade and reaches only `forwardings` and `deleted_mailboxes`;
-  BR-18 covers Mailward's own database; and
-  `docs/policies/authorization.md` BR-A03 covers only the opposite direction,
-  where deleting a **domain** removes the rows keyed by `domain`. Left as
-  written, deleting an administrator's mailbox leaves `domain_admins` rows
-  naming an account that no longer exists, and a re-created address of the same
-  name silently inherits them. Raised by applying
-  `docs/reference/decisions-needed.md` D1, which does not name this table in the
-  mailbox cascade.

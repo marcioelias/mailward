@@ -91,6 +91,33 @@ domain at all is global-admin only (BR-12).
   and `domain.mailboxes` and `domain.maillists` bound populations this table is
   not part of. This feature therefore performs no limit check on create, and
   that absence is a decision, not an omission.
+- **BR-13** — **A name may be both an `alias_domain` row and a `domain` row.**
+  This feature refuses no create because the name already exists in `domain`,
+  and the domains feature refuses none because the name already exists here
+  (`docs/features/domains.md` BR-23). The only uniqueness enforced is BR-04,
+  within `alias_domain` itself. The resulting pair describes a domain that is
+  simultaneously real and aliased, and what delivery then does is a property of
+  the mail server rather than of Mailward; the probe that observes it
+  (`docs/reference/decisions-needed.md` E7) is **informational rather than
+  blocking**, because no rule here depends on its outcome. What *is* enforced is
+  the other half of the same decision — **locality** — and this feature already
+  carries it as BR-02: `target_domain` must exist in `domain`, and an
+  `alias_domain` row does not satisfy it. Mailward may warn where it can see the
+  overlap; it may not refuse (`docs/reference/decisions-needed.md` Q4, answered
+  2026-08-15, option C).
+- **BR-14** — **An alias domain cannot be renamed.** `alias_domain` is written
+  on create and never appears in an `UPDATE`; there is no rename endpoint, no
+  rename field and no rename control, symmetrically with
+  `docs/features/domains.md` BR-22 (`docs/reference/decisions-needed.md` Q5,
+  answered 2026-08-15). Retargeting is not a rename and remains available: it
+  changes `target_domain`, which is the mapping's destination, not its name. The
+  only way to change the name is to delete the row and create a new one, and the
+  interface says that plainly rather than implying a workaround. What it costs
+  is smaller here than for a domain — an alias domain owns no accounts and no
+  mail storage, so nothing is destroyed — but it is not free: from the delete
+  until the new row is created, mail addressed to the old name is no longer
+  mapped to the target domain and is refused, and any external correspondent
+  still using it fails during that window.
 
 ## Data
 
@@ -100,7 +127,7 @@ Five columns only. `$timestamps = false`; the columns are `created` /
 
 | Column | Used by this feature |
 |---|---|
-| `alias_domain` | primary key, created, not updated in place (OQ-AD-02) |
+| `alias_domain` | primary key, created, never updated (BR-14) |
 | `target_domain` | read/write, BR-02, BR-05 |
 | `created`, `modified` | written explicitly, BR-08 |
 | `active` | read/write, BR-07 |
@@ -161,7 +188,7 @@ Error cases: validation failure → redirect back with errors, nothing written;
 failure; caller not a global admin (BR-12) → 403.
 
 **`PUT /alias-domains/{aliasDomain}`** — fields `target_domain` and `active`.
-`alias_domain` itself is not updatable (OQ-AD-02). Error cases: unknown or
+`alias_domain` itself is not updatable (BR-14). Error cases: unknown or
 out-of-scope alias domain → 404, so the scope does not leak existence; new
 `target_domain` absent from `domain` → validation error; new `target_domain`
 outside the actor's scope → 403.
@@ -186,7 +213,7 @@ Retargeting is not a state transition — it changes `target_domain` while the r
 stays in whichever of the two states it already occupies.
 
 Forbidden: any transition out of Deleted; writing `active` as `true`/`false`
-(BR-07); changing `alias_domain` (OQ-AD-02); any state in which
+(BR-07); changing `alias_domain` (BR-14); any state in which
 `target_domain` names a row absent from `domain` — checked at write time by
 BR-02, and prevented afterwards by the cascade of BR-10.
 
@@ -249,6 +276,23 @@ Each runs against **both** MySQL and PostgreSQL (`01-architecture.md` §8).
   row, when an alias domain targeting `example.com` is created, then it succeeds
   and no statement executed by the create counts rows in `alias`, `forwardings`
   or `alias_domain` (BR-11).
+- **AC-17**: given a `domain` row for `example.net` and a `domain` row for
+  `example.com`, when a global admin creates the alias domain
+  `example.net → example.com`, then the create succeeds, both the `domain` and
+  the `alias_domain` row for `example.net` exist, and no statement executed by
+  the create queried `domain` for a conflicting name — only for the existence of
+  `example.com` (BR-13, BR-02).
+- **AC-18**: given no `domain` row for `nope.test` but an `alias_domain` row
+  `nope.test → example.com`, when a global admin creates an alias domain
+  targeting `nope.test`, then the request fails validation on `target_domain`
+  and no row is inserted — an alias domain does not satisfy locality (BR-02,
+  BR-13).
+- **AC-19**: given an existing alias domain `example.net → example.com`, when a
+  global admin submits `PUT /alias-domains/example.net` with a different
+  `alias_domain` value in the payload, then the primary key is unchanged, no
+  `UPDATE` statement issued by the request contains the `alias_domain` column,
+  the routes resolve nothing for renaming one, and the edit page states that the
+  name cannot be changed while still offering retargeting (BR-14).
 
 ## Out of Scope
 
@@ -261,22 +305,13 @@ Each runs against **both** MySQL and PostgreSQL (`01-architecture.md` §8).
 - Deleting the target domain, and its effect on these rows — the write belongs
   to `docs/features/domains.md` BR-16, and is restated here as BR-10 only
   because this feature depends on the invariant it produces.
-- Renaming an alias domain in place (OQ-AD-02).
+- Renaming an alias domain in place (BR-14), and any "rename" implemented as
+  delete-and-recreate on the administrator's behalf.
 - Catch-all addresses, per-alias-domain transports, backup MX behaviour — none
   of these exist on this table.
 
 ## Open Questions
 
-- **OQ-AD-01** — May an `alias_domain` value also exist as a row in `domain`,
-  and may the domains feature create a `domain` whose name is already an
-  `alias_domain`? Nothing in `docs/` forbids either, nothing in the schema
-  prevents either, and the resulting row pair describes a domain that is
-  simultaneously real and aliased.
-- **OQ-AD-02** — Is `alias_domain` editable in place, or is a name change a
-  delete followed by a create? It is the primary key, and whether any other
-  table may hold an alias-domain name — `forwardings.dest_domain` is the
-  candidate (`02-domain.md` §5) — is not stated in `docs/` and is unverified
-  against a real install.
 - **OQ-AD-06** — May an alias domain point at a target domain that is disabled
   (`active = 0`) or expired, and does disabling a target domain change anything
   about its alias domains? Depends on OQ-DOM-03.

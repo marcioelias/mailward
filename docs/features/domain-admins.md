@@ -142,13 +142,42 @@ This feature is where all four are enforced.
   its form covers: `DELETE /admins/{address}/global` clears
   `mailbox.isglobaladmin` and removes the `'ALL'` row (BR-04);
   `DELETE /admins/{address}/domains/{domain}` removes that one `domain_admins`
-  row; a full demotion removes the account's `domain_admins` rows and, subject
-  to OQ-DA-02, clears `isadmin`. It touches **no** row in Mailward's own
+  row; a full demotion removes the account's `domain_admins` rows **and** clears
+  `isadmin` (BR-16). It touches **no** row in Mailward's own
   database — not `panel_profiles`, not `two_factor_secrets` — because the
   account still exists, still receives mail, and may be promoted again, at which
   point that state must still be there. Those rows are removed only when the
   **mailbox** itself is deleted (`docs/features/mailboxes.md` BR-18) or when its
   domain is deleted (`docs/features/domains.md` BR-17).
+- **BR-16** — **A full demotion clears `mailbox.isadmin`.** "Demoted" therefore
+  means "no longer has the panel", not "has the panel and can see nothing in
+  it": `DELETE /admins/{address}` removes the account's `domain_admins` rows and
+  writes `isadmin = 0` in the same transaction as the BR-A01 check, after which
+  the account fails step 2 of the login gate
+  (`docs/policies/authorization.md` §6) exactly as a mail user does. Leaving the
+  flag set would produce an administrator who signs in and sees nothing, which
+  is a support ticket rather than a state: BR-A03's empty state exists for the
+  *domain was deleted* case, and is not a demotion target. The account itself is
+  untouched — it still exists, still receives mail, and may be promoted again
+  (BR-14) (`docs/reference/decisions-needed.md` Q7, answered 2026-08-15).
+- **BR-17** — **`--global` is a mandatory flag on `mailward:promote`, and there
+  is no per-domain form of the command.** Invoked without it, the command
+  refuses and writes nothing; it accepts no `--domain=` option and grants no
+  per-domain administration. Per-domain grants are made through
+  `POST /admins/{address}/domains` and nowhere else. The command exists to
+  repair a lockout (BR-A04), and it is trustworthy in that role precisely
+  because it does one thing: a general-purpose grant tool reachable by anyone
+  with shell access is a larger surface than the escape hatch requires
+  (`docs/reference/decisions-needed.md` Q7, answered 2026-08-15).
+- **BR-18** — A run of `mailward:promote` is recorded in `audit_log` under a
+  **sentinel actor**, not under the promoted address, with the invoking **OS
+  user and hostname** recorded in place of the request IP
+  (`docs/features/audit-log.md` BR-20). A shell invocation has no authenticated
+  administrator and no IP, and the OS user is the only identity it actually has;
+  recording the target as the actor would make the log claim that the promoted
+  account promoted itself. The entry is what makes the escape hatch visible
+  afterwards, and it is distinguishable from a web-originated promotion by the
+  actor alone (`docs/reference/decisions-needed.md` Q10, answered 2026-08-15).
 
 ## Data
 
@@ -196,7 +225,7 @@ Inertia page routes and form endpoints. No JSON API
 | GET | `/admins/create` | `Admins/Create` — pick an existing mailbox to promote |
 | POST | `/admins` | Promote: set `isadmin = 1`; optionally assign initial domains |
 | GET | `/admins/{address}` | `Admins/Show` — flags and assigned domains |
-| DELETE | `/admins/{address}` | Demote: subject to BR-A01 and OQ-DA-02 |
+| DELETE | `/admins/{address}` | Demote: remove the `domain_admins` rows and clear `isadmin` (BR-16); subject to BR-A01 |
 | POST | `/admins/{address}/global` | Grant global: `isglobaladmin = 1` **and** the `'ALL'` row (BR-04). Global admins only (BR-11) |
 | DELETE | `/admins/{address}/global` | Revoke global: clear the flag **and** the `'ALL'` row. Refused by BR-A01 and BR-A02 |
 | POST | `/admins/{address}/domains` | Assign one domain: insert `(address, domain)` (BR-02, BR-09) |
@@ -218,13 +247,16 @@ php artisan mailward:promote <address> --global
 | Element | Contract |
 |---|---|
 | `<address>` | Required. The mail account to promote. Trimmed and lower-cased before use (BR-08) |
-| `--global` | Promote to global admin. This is the form BR-A04 documents; behaviour without it is OQ-DA-03 |
+| `--global` | **Mandatory** (BR-17). Promote to global admin — the form BR-A04 documents, and the only form. Omitting it is an error, not a per-domain promotion; there is no `--domain=` option |
 
 **Validates, in this order, before any write**
 
-1. The address is syntactically an address and is representable in ASCII
+1. `--global` is present (BR-17). Without it the command exits non-zero with one
+   explanatory line and writes nothing — it does not fall back to a per-domain
+   grant, because no such form exists.
+2. The address is syntactically an address and is representable in ASCII
    (BR-07); otherwise it cannot be stored on MySQL.
-2. A `mailbox` row exists with that `username`. If not, the command fails
+3. A `mailbox` row exists with that `username`. If not, the command fails
    without writing.
 
 It deliberately does **not** require the account to be active, unexpired, or
@@ -242,14 +274,14 @@ and BR-A02 do not constrain it: it only ever grants.
 **Prints**: the resolved lower-cased address; the before and after values of
 `isadmin`, `isglobaladmin` and the presence of the `'ALL'` row; and one
 confirmation line. Exit code `0` on success — including the no-op re-run —
-non-zero with a single explanatory line when the mailbox does not exist or the
-address is invalid.
+non-zero with a single explanatory line when `--global` is absent (BR-17), when
+the mailbox does not exist, or when the address is invalid.
 
 **Access**: no panel permission gates it. Anyone with shell access to the
 server can run it, by design (`docs/policies/authorization.md` §5, BR-A04);
 shell access to the mail server is already sufficient to edit `vmail` directly.
-It still writes an `audit_log` entry (§7); how the actor is recorded when there
-is no logged-in administrator is OQ-DA-07.
+It still writes an `audit_log` entry (§7), under the sentinel actor and with the
+invoking OS user and hostname in place of the IP (BR-18).
 
 ## States
 
@@ -262,6 +294,10 @@ enum there (`docs/01-architecture.md` §7).
 | Domain admin | 1 | 0 | one row per assigned domain |
 | Domain admin without domains | 1 | 0 | no rows — logs in, empty state (BR-A03) |
 | Global admin | 1 | 1 | a `'ALL'` row (BR-04) |
+
+"Domain admin without domains" is reached only by a **domain** being deleted
+(BR-A03), never by a demotion: demotion clears `isadmin` and lands the account
+in "Not an administrator" (BR-16).
 
 **Inconsistent** — `isglobaladmin = 1` without the `'ALL'` row, or the `'ALL'`
 row without the flag. The two representations are written independently by
@@ -353,6 +389,31 @@ PostgreSQL (`docs/01-architecture.md` §8).
   with `active` unchanged, and both Mailward-side rows are byte-for-byte
   unchanged; when the account is promoted again, the same `two_factor_secrets`
   secret is still in force (BR-14).
+- **AC-22** — given an administrator with `isadmin = 1` and two `domain_admins`
+  rows, and given they are not the last global admin, when
+  `DELETE /admins/{address}` succeeds, then `mailbox.isadmin` is `0`, both
+  `domain_admins` rows are gone, the `mailbox` row still exists with `active`
+  unchanged, and a subsequent sign-in with the account's correct password is
+  denied at step 2 with the generic message (BR-16,
+  `docs/features/authentication.md` AC-02).
+- **AC-23** — given that demoted account, when it is promoted again through
+  `POST /admins`, then `isadmin` is `1`, it signs in successfully, and its
+  `panel_profiles` and `two_factor_secrets` rows are the same rows as before the
+  demotion — byte-for-byte unchanged throughout (BR-16, BR-14).
+- **AC-24** — given an existing mailbox, when
+  `php artisan mailward:promote user@example.com` runs **without** `--global`,
+  then the exit code is non-zero, one explanatory line is printed, and neither
+  `mailbox` nor `domain_admins` is written — in particular no per-domain grant
+  is created (BR-17).
+- **AC-25** — given the command's definition, when its options are enumerated,
+  then `--global` is required and no `--domain` option exists; and when
+  `--domain=example.com` is passed, then the invocation fails as an unknown
+  option and nothing is written (BR-17).
+- **AC-26** — given `php artisan mailward:promote user@example.com --global`
+  runs and succeeds, when `audit_log` is inspected, then exactly one entry
+  exists for it, its actor is the sentinel rather than `user@example.com` or any
+  other address, and its IP field holds the invoking OS user and hostname
+  (BR-18, `docs/features/audit-log.md` BR-20).
 
 ## Out of Scope
 
@@ -361,6 +422,13 @@ PostgreSQL (`docs/01-architecture.md` §8).
 - Deleting a domain and the cascade of its `domain_admins` rows — that write
   belongs to the domains feature (`docs/features/domains.md` BR-16); BR-A03 only
   requires this feature to render the resulting empty state.
+- Deleting a **mailbox** and the cascade of the `domain_admins` rows keyed by
+  its address — that write belongs to the mailboxes feature
+  (`docs/features/mailboxes.md` BR-27, BR-23 item 6,
+  `docs/reference/decisions-needed.md` Q6, answered 2026-08-15). It matters here
+  only as an invariant this feature can rely on: no `domain_admins` row names an
+  account that no longer exists, so a re-created address never inherits the
+  grants of the account it replaced.
 - The legacy `admin` table. It is not how administrators are defined today and
   Mailward ignores it entirely (`docs/02-domain.md` §8).
 - A Mailward-owned role or permission model. There is no third role in v1
@@ -374,14 +442,6 @@ PostgreSQL (`docs/01-architecture.md` §8).
 
 ## Open Questions
 
-- **OQ-DA-02** — What exactly does "demote" write? Removing the
-  `domain_admins` rows while leaving `isadmin = 1` produces the state BR-A03
-  describes — logs in, sees an empty state. Clearing `isadmin` instead removes
-  panel access entirely (`docs/policies/authorization.md` §6). Both are
-  consistent with the policy; nothing in `docs/` chooses between them.
-- **OQ-DA-03** — What does `mailward:promote <address>` do without `--global`?
-  BR-A04 documents only the `--global` form. Whether the command also grants
-  per-domain administration, and with what argument, is not decided.
 - **OQ-DA-04** — Does `domain_admins.active = 0` revoke a grant? Nothing sourced
   says any iRedMail component reads that column, or its `expired` date
   (`docs/reference/open-questions-research.md`, "Still unknown", OQ-02). Until
@@ -392,9 +452,6 @@ PostgreSQL (`docs/01-architecture.md` §8).
   equal; on PostgreSQL it would not
   (`docs/reference/open-questions-research.md`, OQ-02, Hypothesis 2 and the
   verification queries). BR-05's exclusion is only as reliable as this answer.
-- **OQ-DA-07** — How is the actor recorded in `audit_log` for a console run of
-  `mailward:promote`? `docs/policies/authorization.md` §7 requires an acting
-  address, and a shell invocation has no authenticated administrator.
 - **OQ-DA-08** — What does Mailward do when it finds the two representations
   drifted — `isglobaladmin = 1` with no `'ALL'` row, or an `'ALL'` row with the
   flag cleared? Repair silently, report it, or ignore it. The drift is

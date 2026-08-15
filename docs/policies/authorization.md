@@ -78,6 +78,14 @@ failures, and return the same generic message as a wrong password.
 ## 7. Audit
 
 Every write is recorded in `audit_log` with the acting address, the action, the
-target, and the before/after values. Authorization failures are recorded too —
+target, and the before/after values.
+
+"Every write" is narrowed to a definite list in `docs/features/audit-log.md`
+BR-17 and BR-18, which this policy permits a feature document to do. Read
+literally it would cover `sessions`, `cache` and `jobs`, and a log containing
+those is a log nobody reads. What is recorded: writes to `vmail`, writes to
+Mailward's own `settings`, successful sign-ins, and deliberate refusals.
+
+Authorization failures are recorded too —
 a domain admin repeatedly probing another domain's resources is exactly what
 the log exists to show.
