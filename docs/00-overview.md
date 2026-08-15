@@ -121,9 +121,9 @@ Research status is tracked in `docs/reference/open-questions-research.md` and
 
 **`docs/reference/observed-install.md` is different in kind**: it records the
 actual server this project exists to administer, measured rather than sourced.
-It settles the maildir layout and the password scheme inventory, and it raises
-one risk nothing anticipated — the `vmail` database has a second application
-writing to it, with custom columns on `mailbox`.
+It settles the maildir layout and the password scheme inventory. It also names
+what Mailward replaces: an existing Laravel panel writing into `vmail`, which
+is discarded at the migration — only the mail infrastructure data travels.
 
 - **OQ-01** — Which iRedMail versions form the initial supported range?
   *Proposal on the table:* 1.7.3 (April 2025) and later, because 1.7.3 is the

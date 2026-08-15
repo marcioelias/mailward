@@ -96,10 +96,22 @@ The administrator signs into the panel and their mail client fails, which is
 the exact asymmetry recorded as C3 and the reason `authentication.md` BR-10
 was written the way it was.
 
-This is no longer a hypothetical to be confirmed on a VM. It is 479 real
-accounts, and it makes a scheme-inventory health check the most valuable thing
-Mailward could offer this deployment: *these accounts will stop authenticating
-when you move.*
+**Out of scope, decided 2026-08-15.** This is a property of the operating
+system's crypt library and the mail server's configuration, not of Mailward,
+and it is being resolved before the migration — the accounts are rehashed, or
+Dovecot is configured to keep accepting the old schemes. Either way it is
+settled on the mail server, where it belongs. Mailward installs nothing and
+configures no daemon (`00-overview.md` §2).
+
+What survives for Mailward is smaller and still true: the verifier must read
+every scheme a legacy account may carry, which it does, and it must never be
+the thing that quietly masks a mismatch. That is already how it behaves — a
+scheme it cannot read raises rather than returning a denial
+(`0007-configurable-maildir-and-password-scheme.md`).
+
+Recorded here because the numbers are the clearest evidence yet for why
+verification is exhaustive by design: on this server, a verifier that handled
+only the current scheme would have locked out 42% of the accounts.
 
 ---
 
@@ -112,28 +124,30 @@ The `vmail` database carries tables and columns that iRedMail did not create:
 | `migrations`, `users`, `roles`, `permissions`, `permission_role`, `permission_user`, `role_user`, `password_resets` | A Laravel application using `spatie/laravel-permission`, writing into `vmail` directly. Its code is not on the mail server |
 | `mailbox.id_loja`, `mailbox.id_contrato` | Custom columns tying a mailbox to a store and a contract — an ERP or CRM link |
 
-**This is the largest open risk to Mailward, and it has two halves.**
+**Resolved, 2026-08-15: that application is what Mailward replaces.** It is
+discarded entirely at the migration, and only the mail infrastructure data
+travels. Its administrative surface does not.
 
-**Reading is safe.** Mailward's models declare an explicit `$fillable` and
-never `SELECT *` into a write, so unknown columns are ignored rather than
-mishandled.
+So the two writers never coexist, `01-architecture.md` §2 holds as written, and
+Mailward targets the stock iRedMail schema — which is what it was built
+against. The migration imports the iRedMail tables into a clean install;
+`id_loja`, `id_contrato` and the Laravel tables simply do not follow. Nothing
+here asks Mailward to drop them, which it could not do anyway: it issues no DDL
+against `vmail` (`0002-separate-application-database.md`).
 
-**Writing may not be.** If `id_loja` or `id_contrato` is `NOT NULL` without a
-default, every mailbox Mailward creates fails at the database. If they are
-nullable, Mailward creates accounts that the other system cannot see — which is
-worse, because nothing errors.
+One thing worth noticing, because it closes a loop. The discarded application
+holds its roles in `roles`, `permissions` and `role_user` — the
+`spatie/laravel-permission` shape. Mailward deliberately does not: roles come
+from `mailbox.isglobaladmin` and `domain_admins`
+(`0003-reuse-iredmail-admin-model.md`), so there is one source of truth for who
+administers what instead of a copy that can drift from the mail server. The
+system being replaced is a working example of the drift that decision avoids.
 
-And there is a second system writing the same rows. `01-architecture.md` §2
-assumes iRedMail is the only other writer. It is not.
-
-**Open, and blocking mailbox creation on this install:**
-
-- Are `id_loja` and `id_contrato` nullable, and does the other application
-  require them to be populated?
-- Does that application continue to run after the migration, or does Mailward
-  replace it? If they coexist, they are two writers with no shared lock, and
-  the "no distributed transactions" rule in `01-architecture.md` §3 acquires a
-  second meaning nobody designed for.
+**Residual, and small:** if the migration ever imports into an existing
+database rather than a clean one, those columns come with it. Reading stays
+safe — every model declares an explicit `$fillable` and no write goes through
+`SELECT *` — and a `NOT NULL` custom column without a default would fail loudly
+on the first insert rather than silently.
 
 ---
 
