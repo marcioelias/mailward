@@ -17,7 +17,7 @@ return [
     |
     */
 
-    'default' => env('DB_CONNECTION', 'sqlite'),
+    'default' => env('DB_CONNECTION', 'mailward'),
 
     /*
     |--------------------------------------------------------------------------
@@ -32,6 +32,80 @@ return [
 
     'connections' => [
 
+        /*
+         * Mailward's own database. Owned outright: migrations, full DDL.
+         * Because this is the default connection, migrate:fresh and
+         * migrate:rollback are physically incapable of reaching mail data.
+         * See docs/01-architecture.md §3.
+         */
+        'mailward' => [
+            'driver' => env('DB_DRIVER', 'pgsql'),
+            'url' => env('DB_URL'),
+            'host' => env('DB_HOST', '127.0.0.1'),
+            'port' => env('DB_PORT', '5432'),
+            'database' => env('DB_DATABASE', 'mailward'),
+            'username' => env('DB_USERNAME', 'mailward'),
+            'password' => env('DB_PASSWORD', ''),
+            'unix_socket' => env('DB_SOCKET', ''),
+            'charset' => env('DB_CHARSET', 'utf8'),
+            'collation' => env('DB_COLLATION'),
+            'prefix' => '',
+            'prefix_indexes' => true,
+            'search_path' => 'public',
+            'sslmode' => env('DB_SSLMODE', 'prefer'),
+            'strict' => true,
+            'engine' => null,
+            'options' => extension_loaded('pdo_mysql') ? array_filter([
+                Mysql::ATTR_SSL_CA => env('MYSQL_ATTR_SSL_CA'),
+            ]) : [],
+        ],
+
+        /*
+         * iRedMail's account database. DML only — SELECT, INSERT, UPDATE,
+         * DELETE. Mailward never issues DDL here and no migration may name
+         * this connection. The database user should be granted DML privileges
+         * only, so the boundary is enforced by the server rather than by our
+         * discipline (docs/decisions/0002-separate-application-database.md).
+         *
+         * The driver is configuration because iRedMail supports MySQL,
+         * MariaDB and PostgreSQL, and the type divergences between them are
+         * real (docs/reference/schema-type-matrix.md).
+         */
+        'vmail' => [
+            'driver' => env('VMAIL_DB_DRIVER', 'mysql'),
+            'url' => env('VMAIL_DB_URL'),
+            'host' => env('VMAIL_DB_HOST', '127.0.0.1'),
+            'port' => env('VMAIL_DB_PORT', '3306'),
+            'database' => env('VMAIL_DB_DATABASE', 'vmail'),
+            'username' => env('VMAIL_DB_USERNAME', 'mailward'),
+            'password' => env('VMAIL_DB_PASSWORD', ''),
+            'unix_socket' => env('VMAIL_DB_SOCKET', ''),
+            'charset' => env('VMAIL_DB_CHARSET', 'utf8mb4'),
+            'collation' => env('VMAIL_DB_COLLATION'),
+            'prefix' => '',
+            'prefix_indexes' => true,
+            'search_path' => 'public',
+            'sslmode' => env('VMAIL_DB_SSLMODE', 'prefer'),
+
+            /*
+             * Deliberately not strict. Laravel's strict mode sets a session
+             * sql_mode that rejects iRedMail's own sentinel dates, such as
+             * the '0001-01-01' default on mailbox.birthday. We do not own
+             * this schema and must read the rows it already contains.
+             */
+            'strict' => false,
+            'engine' => null,
+            'options' => extension_loaded('pdo_mysql') ? array_filter([
+                Mysql::ATTR_SSL_CA => env('VMAIL_MYSQL_ATTR_SSL_CA'),
+            ]) : [],
+        ],
+
+        /*
+         * The iredapd and amavisd connections are declared when the features
+         * that need them land (docs/01-architecture.md §3). Only vmail is
+         * used in v1.
+         */
+
         'sqlite' => [
             'driver' => 'sqlite',
             'url' => env('DB_URL'),
@@ -42,76 +116,6 @@ return [
             'journal_mode' => null,
             'synchronous' => null,
             'transaction_mode' => 'DEFERRED',
-        ],
-
-        'mysql' => [
-            'driver' => 'mysql',
-            'url' => env('DB_URL'),
-            'host' => env('DB_HOST', '127.0.0.1'),
-            'port' => env('DB_PORT', '3306'),
-            'database' => env('DB_DATABASE', 'laravel'),
-            'username' => env('DB_USERNAME', 'root'),
-            'password' => env('DB_PASSWORD', ''),
-            'unix_socket' => env('DB_SOCKET', ''),
-            'charset' => env('DB_CHARSET', 'utf8mb4'),
-            'collation' => env('DB_COLLATION', 'utf8mb4_unicode_ci'),
-            'prefix' => '',
-            'prefix_indexes' => true,
-            'strict' => true,
-            'engine' => null,
-            'options' => extension_loaded('pdo_mysql') ? array_filter([
-                Mysql::ATTR_SSL_CA => env('MYSQL_ATTR_SSL_CA'),
-            ]) : [],
-        ],
-
-        'mariadb' => [
-            'driver' => 'mariadb',
-            'url' => env('DB_URL'),
-            'host' => env('DB_HOST', '127.0.0.1'),
-            'port' => env('DB_PORT', '3306'),
-            'database' => env('DB_DATABASE', 'laravel'),
-            'username' => env('DB_USERNAME', 'root'),
-            'password' => env('DB_PASSWORD', ''),
-            'unix_socket' => env('DB_SOCKET', ''),
-            'charset' => env('DB_CHARSET', 'utf8mb4'),
-            'collation' => env('DB_COLLATION', 'utf8mb4_unicode_ci'),
-            'prefix' => '',
-            'prefix_indexes' => true,
-            'strict' => true,
-            'engine' => null,
-            'options' => extension_loaded('pdo_mysql') ? array_filter([
-                Mysql::ATTR_SSL_CA => env('MYSQL_ATTR_SSL_CA'),
-            ]) : [],
-        ],
-
-        'pgsql' => [
-            'driver' => 'pgsql',
-            'url' => env('DB_URL'),
-            'host' => env('DB_HOST', '127.0.0.1'),
-            'port' => env('DB_PORT', '5432'),
-            'database' => env('DB_DATABASE', 'laravel'),
-            'username' => env('DB_USERNAME', 'root'),
-            'password' => env('DB_PASSWORD', ''),
-            'charset' => env('DB_CHARSET', 'utf8'),
-            'prefix' => '',
-            'prefix_indexes' => true,
-            'search_path' => 'public',
-            'sslmode' => env('DB_SSLMODE', 'prefer'),
-        ],
-
-        'sqlsrv' => [
-            'driver' => 'sqlsrv',
-            'url' => env('DB_URL'),
-            'host' => env('DB_HOST', 'localhost'),
-            'port' => env('DB_PORT', '1433'),
-            'database' => env('DB_DATABASE', 'laravel'),
-            'username' => env('DB_USERNAME', 'root'),
-            'password' => env('DB_PASSWORD', ''),
-            'charset' => env('DB_CHARSET', 'utf8'),
-            'prefix' => '',
-            'prefix_indexes' => true,
-            // 'encrypt' => env('DB_ENCRYPT', 'yes'),
-            // 'trust_server_certificate' => env('DB_TRUST_SERVER_CERTIFICATE', 'false'),
         ],
 
     ],
