@@ -50,6 +50,17 @@ Not reopened below.
 
 ---
 
+- **Q1** — A `domain_admins` row that is inactive or expired confers nothing.
+  The columns sit on the grant, not on the person, so one lapsing does not take
+  the others with it, and an administrator left with no live grant still signs
+  in to an empty screen (BR-A03). Answered 2026-08-15; implemented in
+  `Actor::administeredDomains()`. Closed `OQ-DA-04`, `OQ-AUTH-05`, `OQ-DASH-05`.
+- **Q2** — Every write in the alias-domains and domain-admins features is
+  global-admin only, consistent with D8. A domain admin administers the
+  contents of their domains and nothing else. Answered 2026-08-15; recorded as
+  `alias-domains.md` BR-12 and `domain-admins.md` BR-15. Closed `OQ-AD-04`,
+  `OQ-DA-01`.
+
 ## The questions
 
 ### Authority — who may do what

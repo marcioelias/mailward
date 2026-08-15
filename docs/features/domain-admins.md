@@ -28,7 +28,7 @@ are referenced, never re-derived.
 | Actor | Capability here |
 |---|---|
 | Global admin | Promote, demote, assign and remove domains, on any account |
-| Domain admin | Sees the `domain_admins` rows for the domains they administer (`docs/policies/authorization.md` §2). Write authority is undecided — OQ-DA-01 |
+| Domain admin | Sees the `domain_admins` rows for the domains they administer (`docs/policies/authorization.md` §2). Writes none of them — BR-15 |
 | Mail user | None in v1 (`docs/policies/authorization.md` §1) |
 
 `docs/policies/authorization.md` applies in full — the scope rule (§2),
@@ -127,6 +127,15 @@ This feature is where all four are enforced.
   never as a flag on `mailbox` (`docs/02-domain.md` §13,
   `docs/decisions/0003-reuse-iredmail-admin-model.md`). Demotion does not remove
   those rows — BR-14.
+- **BR-15** — **Every write in this feature is global-admin only**, including
+  assigning and removing an administrator on a domain the actor administers. A
+  domain admin sees the grants covering their own domains and changes none of
+  them. The reason is that v1 offers no way to review or revoke a grant a
+  domain admin made — no notification, and a lapsed grant is removed rather
+  than suspended (Q1) — so authority that propagates itself has no path back.
+  Opening this later is additive; closing it later breaks a workflow
+  administrators have come to rely on
+  (`docs/reference/decisions-needed.md` Q2, answered 2026-08-15).
 - **BR-14** — **Demotion is not a deletion.** The `mailbox` row survives, and so
   does everything keyed by its address (`docs/reference/decisions-needed.md`
   D1). A demotion writes, in one transaction with the BR-A01 check, only what
@@ -329,6 +338,12 @@ PostgreSQL (`docs/01-architecture.md` §8).
 - **AC-18** — given an administrator whose only domain is deleted, when they log
   in, then access is granted and an empty state is rendered rather than an error
   (BR-A03).
+- **AC-20** — Given a domain admin administering `example.test`, when they
+  assign another administrator to it, then the response is `403`, no
+  `domain_admins` row is written, and the refusal is recorded as an
+  authorization failure.
+- **AC-21** — Given the same actor, when they remove an existing grant on a
+  domain they administer, then the response is `403` and the grant survives.
 - **AC-19** — given a global admin with a `panel_profiles` row, a
   `two_factor_secrets` row and one real per-domain `domain_admins` row, and
   given a second global admin exists, when the account is demoted through
@@ -359,11 +374,6 @@ PostgreSQL (`docs/01-architecture.md` §8).
 
 ## Open Questions
 
-- **OQ-DA-01** — May a domain admin assign or remove another administrator on a
-  domain they administer, or is every write in this feature global-admin only?
-  `docs/policies/authorization.md` §2 lists "domain admin assignment" as a
-  domain-owned resource and thereby decides **visibility**; it does not decide
-  write authority. BR-11 settles only the global flag.
 - **OQ-DA-02** — What exactly does "demote" write? Removing the
   `domain_admins` rows while leaving `isadmin = 1` produces the state BR-A03
   describes — logs in, sees an empty state. Clearing `isadmin` instead removes

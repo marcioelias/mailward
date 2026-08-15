@@ -23,7 +23,7 @@ Scope line: `docs/00-overview.md` §5, v1 — "Alias domains".
 Authorization is `docs/policies/authorization.md` in full — §2 scope rule, §3
 enforcement in the query, §4 server-side re-authorization, §7 audit. This
 feature narrows nothing. Whether a domain admin may create or delete an alias
-domain at all is unresolved (OQ-AD-04).
+domain at all is global-admin only (BR-12).
 
 ## Business Rules
 
@@ -78,6 +78,13 @@ domain at all is unresolved (OQ-AD-04).
   this feature gains is that BR-02 holds permanently rather than only at write
   time: **no `alias_domain` row outlives the `domain` row it names**, so no read
   path here has to tolerate a dangling `target_domain`.
+- **BR-12** — **Every write in this feature is global-admin only.** Creating and
+  deleting an alias domain both add or remove a name from the mail server's
+  namespace, which is not scoped to a domain the actor already administers, so
+  the scope rule cannot authorise them. A domain admin sees the alias domains
+  pointing at the domains they administer (BR-05) and writes none of them. The
+  refusal shape is BR-19's: `403` in scope, `404` out of scope, both audited
+  (`docs/reference/decisions-needed.md` Q2, answered 2026-08-15).
 - **BR-11** — An `alias_domain` row counts against **no** per-domain limit.
   `domain.aliases` bounds standalone alias accounts (`vmail.alias`) only
   (`docs/reference/decisions-needed.md` D2; `docs/features/domains.md` BR-18),
@@ -151,7 +158,7 @@ Error cases: validation failure → redirect back with errors, nothing written;
 `target_domain` absent from `domain` → validation error on `target_domain`;
 `alias_domain` already present → validation error on `alias_domain`;
 `target_domain` outside the actor's scope → 403, recorded as an authorization
-failure; caller not permitted at all (OQ-AD-04) → 403.
+failure; caller not a global admin (BR-12) → 403.
 
 **`PUT /alias-domains/{aliasDomain}`** — fields `target_domain` and `active`.
 `alias_domain` itself is not updatable (OQ-AD-02). Error cases: unknown or
@@ -163,7 +170,7 @@ outside the actor's scope → 403.
 cases: unknown or out-of-scope → 404; not permitted → 403.
 
 **`DELETE /alias-domains/{aliasDomain}`** — removes the single `alias_domain`
-row. Error cases: unknown or out-of-scope → 404; not permitted (OQ-AD-04) → 403.
+row. Error cases: unknown or out-of-scope → 404; not a global admin (BR-12) → 403.
 
 ## States
 
@@ -230,6 +237,14 @@ Each runs against **both** MySQL and PostgreSQL (`01-architecture.md` §8).
   deleted, then the `a.net` and `b.net` rows are gone, `c.net` and `other.com`
   are unchanged, and `GET /alias-domains` never returns a row whose
   `target_domain` is absent from `domain` (BR-10).
+- **AC-15** — Given a domain admin administering `example.test`, when they post
+  a new alias domain pointing at it, then the response is `403`, no
+  `alias_domain` row is written, and the refusal is recorded as an
+  authorization failure.
+- **AC-16** — Given the same actor and an existing alias domain pointing at
+  `example.test`, when they request its deletion, then the response is `403`
+  and the row survives; when the target is a domain they do not administer, the
+  response is `404` instead, so the refusal does not reveal that it exists.
 - **AC-14**: given `example.com` with `aliases = 1` and one existing `alias`
   row, when an alias domain targeting `example.com` is created, then it succeeds
   and no statement executed by the create counts rows in `alias`, `forwardings`
@@ -262,14 +277,6 @@ Each runs against **both** MySQL and PostgreSQL (`01-architecture.md` §8).
   table may hold an alias-domain name — `forwardings.dest_domain` is the
   candidate (`02-domain.md` §5) — is not stated in `docs/` and is unverified
   against a real install.
-- **OQ-AD-04** — May a domain admin create or delete an alias domain pointing at
-  a domain they administer, or are those operations global-admin only? The
-  equivalent question for domains is decided — every write to a `domain` row is
-  global-admin only (`docs/features/domains.md` BR-19;
-  `docs/reference/decisions-needed.md` D8, decided 2026-08-15) — but the answer
-  here need not be the same, and this document does not assume it: an alias
-  domain adds a name to the mail server's namespace, which the domains feature
-  restricts separately.
 - **OQ-AD-06** — May an alias domain point at a target domain that is disabled
   (`active = 0`) or expired, and does disabling a target domain change anything
   about its alias domains? Depends on OQ-DOM-03.
