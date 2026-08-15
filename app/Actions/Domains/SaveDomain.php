@@ -7,6 +7,7 @@ namespace App\Actions\Domains;
 use App\Casts\NeverExpiresDate;
 use App\Casts\NeverSetDate;
 use App\Models\Mail\Domain;
+use App\Support\Audit\Audit;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -24,7 +25,7 @@ final class SaveDomain
      */
     public function create(array $attributes): Domain
     {
-        return DB::connection('vmail')->transaction(function () use ($attributes): Domain {
+        $domain = DB::connection('vmail')->transaction(function () use ($attributes): Domain {
             $domain = new Domain($this->writable($attributes));
 
             $domain->setAttribute('created', now());
@@ -37,6 +38,12 @@ final class SaveDomain
 
             return $domain;
         });
+
+        // After the commit, never before: a log that claims an operation that
+        // did not happen is worse than one with a rare, detectable gap.
+        Audit::record('created', $domain, after: $domain->getAttributes());
+
+        return $domain;
     }
 
     /**
@@ -44,13 +51,22 @@ final class SaveDomain
      */
     public function update(Domain $domain, array $attributes): Domain
     {
-        return DB::connection('vmail')->transaction(function () use ($domain, $attributes): Domain {
+        $before = $domain->getOriginal();
+
+        DB::connection('vmail')->transaction(function () use ($domain, $attributes): void {
             $domain->fill($this->writable($attributes));
             $domain->setAttribute('modified', now());
             $domain->save();
-
-            return $domain;
         });
+
+        Audit::record(
+            'updated',
+            $domain,
+            before: array_intersect_key($before, $domain->getChanges()),
+            after: $domain->getChanges(),
+        );
+
+        return $domain;
     }
 
     /**

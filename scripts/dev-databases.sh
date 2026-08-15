@@ -84,6 +84,16 @@ for db in mailward mailward_test; do
     create_if_absent "$db"
 done
 
+# Mailward owns these two, so they are migrated rather than loaded from a
+# schema file. The test database is migrated too — forgetting it turns every
+# feature test into an undefined-table error that looks like a code fault.
+if [ -f artisan ]; then
+    echo "==> migrating mailward"
+    php artisan migrate --force
+    echo "==> migrating mailward_test"
+    DB_DATABASE=mailward_test php artisan migrate --force
+fi
+
 echo
 echo "==> verifying"
 printf 'mysql    vmail tables: %s\n' \

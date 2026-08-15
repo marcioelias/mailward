@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Actions\Domains;
 
 use App\Models\Mail\Domain;
+use App\Support\Audit\Audit;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -28,6 +29,7 @@ final class DeleteDomain
     public function handle(Domain $domain): void
     {
         $name = (string) $domain->getKey();
+        $before = $domain->getAttributes();
 
         $this->forgetMailwardRows($name);
 
@@ -59,6 +61,13 @@ final class DeleteDomain
 
             $vmail->table('domain')->where('domain', $name)->delete();
         });
+
+        /*
+         * Recorded without a subject: the row a morph would point at no longer
+         * exists. The log is append-only and deliberately keeps references to
+         * things that are gone (docs/02-domain.md §13).
+         */
+        Audit::recordDeletion('domain', $name, $before);
     }
 
     /**
