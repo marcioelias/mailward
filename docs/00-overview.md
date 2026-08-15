@@ -117,8 +117,13 @@ The range is set once the first install is validated. See Open Questions.
 ## 9. Open Questions
 
 Research status is tracked in `docs/reference/open-questions-research.md` and
-`docs/reference/current-iredmail-behaviour.md`. Nothing below is confirmed
-against a running install.
+`docs/reference/current-iredmail-behaviour.md`.
+
+**`docs/reference/observed-install.md` is different in kind**: it records the
+actual server this project exists to administer, measured rather than sourced.
+It settles the maildir layout and the password scheme inventory, and it raises
+one risk nothing anticipated — the `vmail` database has a second application
+writing to it, with custom columns on `mailbox`.
 
 - **OQ-01** — Which iRedMail versions form the initial supported range?
   *Proposal on the table:* 1.7.3 (April 2025) and later, because 1.7.3 is the
