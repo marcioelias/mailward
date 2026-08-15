@@ -106,7 +106,7 @@ for, v1 puts the whole log behind the global-admin flag: BR-16.
   never a substitute for the operation succeeding, and the log is never read
   back as the source of truth for mail data — `vmail` is
   (`01-architecture.md` §2). Where the entry falls relative to the `vmail`
-  commit is OQ-AUD-03.
+  commit is settled: the entry is written after it (BR-06).
 - **BR-16** — **Reading the audit log is global-admin only.** `GET /audit-log`
   requires `mailbox.isglobaladmin = 1`; a domain admin cannot read the log at
   all, not even the entries whose target lies inside a domain they administer,
@@ -389,13 +389,6 @@ rather than by anything an administrator does:
 
 ## Open Questions
 
-- **OQ-AUD-03** — Where does the entry fall relative to the `vmail` commit?
-  `01-architecture.md` §3 forbids a transaction spanning both databases and
-  orders the `vmail` write last. So the entry is written either before the
-  operation is known to have succeeded — recording a write that may not have
-  happened — or after it can no longer be rolled back, risking a completed write
-  with no entry. Which failure is accepted is not decided, and it decides the
-  log's evidentiary value.
 - **OQ-AUD-07** — Is append-only enforced at the database, by denying UPDATE and
   DELETE on `audit_log` to Mailward's own database user, as
   `01-architecture.md` §3 does for the `vmail` connection ("enforcement, not

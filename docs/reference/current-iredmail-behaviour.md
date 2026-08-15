@@ -477,7 +477,7 @@ states the opposite of the documented default.
 
 ---
 
-## 4. Current version, and the supported range (OQ-01)
+## 4. Current version, and the supported range
 
 ### Current stable
 
@@ -549,7 +549,9 @@ names only the two SQL drivers:
   A second VM on Debian 13 is needed before the password hasher can be called
   done.
 
-Suggested wording for the README and for `00-overview.md` OQ-01:
+This recommendation was adopted on 2026-08-15 and is now declared in
+`docs/00-overview.md` §8 (`docs/reference/decisions-needed.md` Q23, option A).
+Suggested wording for the README:
 
 > Works with iRedMail 1.7.3 and later on MySQL/MariaDB or PostgreSQL.
 > Developed and tested against iRedMail 1.8.4.

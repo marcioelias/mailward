@@ -114,8 +114,8 @@ one's own forwardings is a later, self-service feature (`00-overview.md` §5).
   not satisfy it, because an alias domain has no accounts of its own
   (`02-domain.md` §3). Two things this rule deliberately does **not** do. It
   does not constrain a **forwarding target**: a forwarding is a destination,
-  frequently external, and whether a target is validated beyond format is
-  OQ-A8. And it does not refuse a **collision** — the alias address may equal an
+  frequently external, and how a target is validated is BR-18. And it does not
+  refuse a **collision** — the alias address may equal an
   existing `mailbox.username` or an existing `alias.address`, and no cross-table
   uniqueness check is performed, so which object wins at delivery is a property
   of the mail server rather than of Mailward. The probe that observes it
@@ -134,6 +134,64 @@ one's own forwardings is a later, self-service feature (`00-overview.md` §5).
   has to render a target that is gone. It is the symmetric counterpart of item 4
   of `docs/features/mailboxes.md` BR-23
   (`docs/reference/decisions-needed.md` Q6, answered 2026-08-15).
+- **BR-18** — **A forwarding target is format-checked always, and must exist when
+  it lies inside a locally hosted domain. External targets are unrestricted.**
+  Three parts, in the order they are checked:
+  1. **Format, always.** The target is a syntactically valid address, trimmed and
+     lower-cased first (BR-03), external or not.
+  2. **Locality decides whether existence is checked.** A target is *local* when
+     its domain part has a row in `domain` — the same test BR-16 applies to an
+     alias address. A target whose domain has no `domain` row is *external* and
+     is accepted on format alone: forwarding mail off the server is the ordinary
+     use of a forwarding, and restricting the **destination** is what a hosting
+     provider does to a customer, which `00-overview.md` §3 rules out —
+     administrators here are staff, not customers. A domain that exists only as
+     an `alias_domain` row is **external** for this rule and is therefore
+     accepted: an alias domain has no accounts of its own (`02-domain.md` §3), so
+     there is no row to check the target against.
+  3. **A local target must exist**, checked with an explicit `EXISTS` on the
+     `vmail` connection inside the same transaction as the insert. This catches
+     the common typo, which otherwise creates a forwarding that bounces every
+     message the account receives while the panel shows it as correct.
+  **Which tables the `EXISTS` consults is part of the rule.** Because collisions
+  are permitted (BR-16), "the local target exists" can be true of more than one
+  object at once, and a check written against `mailbox` alone would silently
+  reject valid targets. The check is satisfied by **any one** of: a `mailbox` row
+  whose `username` is the target; an `alias` row whose `address` is the target
+  (`docs/features/aliases.md` BR-01); or a `forwardings` row whose `address` is
+  the target with `is_alias = 1` — a per-account alias written by this feature.
+  The first match ends the check, every one of those queries is anchored on an
+  address column and never on a flag alone (BR-09), and `is_maillist = 1` rows do
+  not satisfy it because mailing lists are unmodelled in v1 (`02-domain.md` §12).
+  `active = 0` on the matched row does **not** fail the check: an existing but
+  disabled target is a state an administrator chose, not a typo. **Circular and
+  self-referencing targets are not refused.** A forwarding may name its own
+  owning mailbox, and two mailboxes may forward to each other; refusing that
+  would need a graph walk at write time that still could not see loops formed
+  through aliases or through an external hop that comes back, and an incomplete
+  guarantee is not offered in place of none. The **authorization** half is
+  unchanged and is BR-02: the decision is made on the owning mailbox's domain,
+  never on the destination's, so a target may sit in a domain the actor does not
+  administer (`docs/reference/decisions-needed.md` Q17, answered 2026-08-15,
+  option B).
+- **BR-19** — **This feature exposes create and delete only. `active` is always
+  written as `1` and is never updated.** No endpoint, control or field changes
+  `forwardings.active` on a row this feature owns, and a row has no state between
+  present and absent. A forwarding or per-account alias is suspended by deleting
+  it and restored by creating it again. The reason is that **nothing sourced says
+  any iRedMail component honours the column** on these rows — the probe is
+  `docs/reference/decisions-needed.md` E6 — and a control that appears to suspend
+  a forwarding while mail keeps being copied to the destination is worse than no
+  control: it is a promise Mailward cannot keep, and the person harmed by it is
+  the one who believed the mail had stopped. This matches the treatment
+  `docs/features/domain-admins.md` BR-10 gives the identical doubt on
+  `domain_admins.active`, and `docs/features/aliases.md` BR-21 gives it on
+  `is_list` members. A row found with `active = 0` — written by iRedAdmin or by
+  hand — is listed as an ordinary row rather than hidden, because Mailward does
+  not know that the column means anything. Values are still bound `1`/`0` and
+  never `true`/`false` (BR-08). Exposing the toggle later is additive and
+  requires E6 to show the column is honoured first
+  (`docs/reference/decisions-needed.md` Q19, answered 2026-08-15, option A).
 
 ## Data
 
@@ -150,14 +208,16 @@ one's own forwardings is a later, self-service feature (`00-overview.md` §5).
 | `is_forwarding` | `1` for a forwarding, `0` otherwise (BR-04) |
 | `is_alias` | `1` for an alias, `0` otherwise (BR-04) |
 | `is_list`, `is_maillist` | Always `0` on rows this feature writes; rows carrying `1` are invisible to it (BR-05) |
-| `active` | `1` on create (BR-08) |
+| `active` | always `1` on create; never updated, no toggle exposed (BR-08, BR-19) |
 
 The table has no date columns, so the sentinel-date rules of `02-domain.md`
 §1.2 do not apply here.
 
 **Read-only** — `vmail.mailbox` (`username`, `domain`, `active`) to resolve and
-authorize the owning account, and `vmail.domain` for the locality check of
-BR-16.
+authorize the owning account, and `vmail.domain` for the locality check of BR-16
+and for deciding whether a forwarding target is local (BR-18). For a local
+target's existence check, `mailbox.username`, `alias.address` and
+`forwardings.address` with `is_alias = 1` are read and never written (BR-18).
 
 **Not touched** — `vmail.alias` (standalone alias accounts) and every row of
 `forwardings` discriminated by `is_list` or `is_maillist`.
@@ -173,11 +233,11 @@ together with `{mailbox}` (BR-10). Validation lives in FormRequests.
 |---|---|---|
 | GET | `/mailboxes/{mailbox}/aliases` | `Mailboxes/Aliases/Index` — the account's `is_alias` rows |
 | POST | `/mailboxes/{mailbox}/aliases` | Creates one `is_alias` row |
-| PUT | `/mailboxes/{mailbox}/aliases/{id}` | Updates that row |
+| PUT | `/mailboxes/{mailbox}/aliases/{id}` | Updates that row — never `active` (BR-19) |
 | DELETE | `/mailboxes/{mailbox}/aliases/{id}` | Deletes that row |
 | GET | `/mailboxes/{mailbox}/forwardings` | `Mailboxes/Forwardings/Index` — the account's `is_forwarding` rows, excluding the self-referencing row (BR-06) |
 | POST | `/mailboxes/{mailbox}/forwardings` | Creates one `is_forwarding` row |
-| PUT | `/mailboxes/{mailbox}/forwardings/{id}` | Updates that row |
+| PUT | `/mailboxes/{mailbox}/forwardings/{id}` | Updates that row — never `active` (BR-19) |
 | DELETE | `/mailboxes/{mailbox}/forwardings/{id}` | Deletes that row |
 
 Both listings may also be rendered as sections of the mailbox page, provided
@@ -188,28 +248,30 @@ authorizes every request again (`docs/policies/authorization.md` §4).
 
 Error cases: 403 when the owning mailbox is outside the actor's scope, or when
 `{id}` does not belong to `{mailbox}` (logged per BR-11); 422 with field errors
-for validation, including the duplicate-pair check of BR-07 and the locality
-check of BR-16 on an alias address; 422 for any attempt to target the
-self-referencing row (BR-06).
+for validation, including the duplicate-pair check of BR-07, the locality check
+of BR-16 on an alias address and the target check of BR-18 on a forwarding
+destination; 422 for any attempt to target the self-referencing row (BR-06).
+A request that submits `active` on either `PUT` is rejected rather than silently
+ignored (BR-19).
 
 ## States
 
-A row has two states, `active = 1` and `active = 0`, plus absence.
+A row this feature owns has two states in v1: present and absent. The `active`
+column exists and is always `1`; no transition on it is exposed (BR-19).
 
 ```
-(none) --create--> active <--> inactive        (see OQ-A6)
-   ^                  |            |
-   +-----delete-------+------------+
+(none) --create--> present --delete--> (none)
 ```
 
-- Rows are created `active = 1` (BR-08).
+- Rows are created `active = 1` (BR-08) and `active` is never updated (BR-19).
 - Deletion is a hard delete of that one row; nothing else about the mailbox
   changes.
+- A row found with `active = 0`, written outside Mailward, is listed as an
+  ordinary row; it is neither hidden nor offered a control (BR-19).
 - Forbidden: deleting or deactivating the self-referencing row of the owning
   mailbox (BR-06); creating a second row with the same `(address, forwarding)`
   pair (BR-07); writing a row with more than one discriminator flag set
-  (BR-04).
-- Whether the `active` transition is exposed in v1 at all is OQ-A6.
+  (BR-04); writing `forwardings.active` at all after create (BR-19).
 
 ## Acceptance Criteria
 
@@ -280,6 +342,48 @@ A row has two states, `active = 1` and `active = 0`, plus absence.
   then both of those rows are gone, `bob@a.com` and its self-referencing row are
   untouched, and every listing of this feature for `bob@a.com` renders without a
   dangling destination (BR-17).
+- **AC-20** — Given a mailbox in `a.com` and no account anywhere named
+  `ghost@a.com`, when a forwarding to `ghost@a.com` is submitted, then it fails
+  validation on the target and no `forwardings` row is written — `a.com` has a
+  `domain` row, so the target is local and must exist (BR-18).
+- **AC-21** — Given the same mailbox, when a forwarding to
+  `anyone@external.example` is submitted and no `domain` row exists for
+  `external.example`, then the row is created; and when `not-an-address` is
+  submitted, then it fails validation on format, external or not (BR-18).
+- **AC-22** — Given a mailbox in `a.com`, a mailbox `bob@a.com`, a standalone
+  alias `team@a.com` and a per-account alias row (`address = 'sales@a.com'`,
+  `is_alias = 1`), when a forwarding is created to each of the three addresses in
+  turn, then all three succeed; and when the executed statements are inspected,
+  then the existence check consulted `mailbox`, `alias` and `forwardings` rather
+  than `mailbox` alone, and each of those queries was anchored on an address
+  column rather than on a flag (BR-18, BR-09, BR-16).
+- **AC-23** — Given `list.test` exists only as an `alias_domain` row targeting
+  `a.com`, and no account named `sales@list.test` exists anywhere, when a
+  forwarding to `sales@list.test` is submitted, then it is **accepted** and the
+  row is written — an alias domain is external for this rule, not a locality
+  failure (BR-18).
+- **AC-24** — Given mailboxes `a@x.com` and `b@x.com`, when `a@x.com` is given a
+  forwarding to `b@x.com` and `b@x.com` a forwarding to `a@x.com`, then both
+  succeed; and given a mailbox is given a forwarding to its own address, then it
+  succeeds too, and no executed statement walked the forwarding graph (BR-18).
+- **AC-25** — Given a local target whose `mailbox` row has `active = 0`, when a
+  forwarding to it is submitted, then the request succeeds: existence is checked,
+  liveness is not (BR-18).
+- **AC-26** — Given a domain admin administering `a.com` only, when they create a
+  forwarding from a mailbox in `a.com` to a target in `b.com`, then it succeeds —
+  the destination's domain plays no part in authorization; and when they attempt
+  any endpoint for a mailbox in `b.com`, then the response is 403 (BR-18, BR-02).
+- **AC-27** — Given a per-account alias and a forwarding are created, when both
+  rows are read back, then `active` is the integer `1` on each; and when the
+  application's routes and FormRequests are enumerated, then none accepts or
+  writes `forwardings.active` after create. *(BR-19, BR-08)*
+- **AC-28** — Given a `PUT` on either endpoint carrying an `active` field, when
+  it is submitted, then the request is rejected and the stored `active` is
+  unchanged — it is never silently dropped and the row is never written. *(BR-19)*
+- **AC-29** — Given an existing row written outside Mailward with `active = 0`,
+  when the corresponding listing renders, then the row appears like any other, no
+  control offers to enable it, and no statement issued by the page writes
+  `forwardings.active`. *(BR-19)*
 
 ## Out of Scope
 
@@ -321,18 +425,3 @@ A row has two states, `active = 1` and `active = 0`, plus absence.
   row is mandatory for every mailbox, so BR-06 forbids removing it; nothing in
   `docs/` decides whether such an option is expected to exist, and offering it
   would contradict that invariant.
-- **OQ-A6** — Does v1 expose per-row enable/disable through
-  `forwardings.active`, or only create and delete? The column exists and
-  defaults to `1`; the v1 scope line says only "per-user aliases and
-  forwardings".
-- **OQ-A8** — Is a forwarding target validated beyond address format — for
-  instance, must a target inside a locally hosted domain correspond to an
-  existing account, and are self-referencing or circular targets between two
-  local mailboxes rejected? Nothing in `docs/` decides it. BR-16 settles
-  locality for the alias **address** and deliberately leaves the forwarding
-  **target** open, so this question is now available to be answered either way.
-  Any answer must **not assume a collision is refused** (BR-16): an address may
-  legitimately be both a `mailbox` row and an `alias` row, so "the local target
-  exists" can be true of two different objects at once, and an existence check
-  must state which tables it consults (`docs/reference/decisions-needed.md`
-  Q17).

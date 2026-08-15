@@ -423,7 +423,8 @@ and confirm the mailbox is usable, not merely that a directory exists.
 version alongside every observation; iRedMail stores the release version there
 after installation
 (https://docs.iredmail.org/upgrade.iredmail.1.7.2-1.7.3.html). Every finding in
-this section is version-scoped and feeds OQ-01.
+this section is version-scoped, and is scoped by the supported range now
+declared in `docs/00-overview.md` §8 (1.7.3 and later, validated against 1.8.4).
 
 ### What it blocks
 
@@ -714,7 +715,8 @@ observation on a real install, or by a deliberate Mailward decision.
 - Whether the value carries a trailing slash.
 - Whether older supported iRedMail versions stored an **absolute** path in
   `mailbox.maildir` — which would make the column's meaning version-dependent
-  and force a compatibility check (feeds OQ-01).
+  and force a compatibility check. Scoped by the supported range in
+  `docs/00-overview.md` §8.
 - How the single documented `STORAGE_BASE_DIRECTORY` (`/var/vmail/vmail1`) is
   split between the `storagebasedirectory` and `storagenode` columns.
 - Whether multiple storage nodes are meant to be selectable per account by an
@@ -736,9 +738,10 @@ observation on a real install, or by a deliberate Mailward decision.
 
 **Cross-cutting**
 
-- OQ-01 (the supported version range) is upstream of all three: every answer
-  above is version-scoped, and the verification procedures should be run on
-  each version in the candidate range, recording `/etc/iredmail-release`
+- The supported version range is upstream of all three, and is now decided —
+  1.7.3 and later, validated against 1.8.4 (`docs/00-overview.md` §8). Every
+  answer above is version-scoped, and the verification procedures should be run
+  on each version in that range, recording `/etc/iredmail-release`
   alongside every observation
   (https://docs.iredmail.org/upgrade.iredmail.1.7.2-1.7.3.html). Release notes
   and per-version upgrade guides are indexed at

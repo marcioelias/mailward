@@ -118,8 +118,7 @@ restated here. The rules below only narrow it.
   accounts of its own and its mail resolves to the target domain's accounts
   (`docs/02-domain.md` §3), so an `alias` row inside one would be shadowed by
   that mapping rather than reachable through it. Locality binds the alias
-  address only; whether a **member** address is validated beyond format is a
-  separate question and is still open — OQ-AL-04
+  address only; a **member** address is governed separately by BR-19
   (`docs/reference/decisions-needed.md` Q4, answered 2026-08-15, option C).
 - **BR-17** — **Collisions are permitted.** An `alias.address` may equal an
   existing `mailbox.username`, and may equal a `forwardings.address` of another
@@ -147,6 +146,81 @@ restated here. The rules below only narrow it.
   `is_maillist = 1` are not touched: mailing lists are unmodelled in v1
   (`docs/02-domain.md` §12) (`docs/reference/decisions-needed.md` Q6, answered
   2026-08-15).
+- **BR-19** — **A member address is format-checked always, and must exist when it
+  lies inside a locally hosted domain. External members are unrestricted, and a
+  member may come from any domain.** Three parts, in the order they are checked:
+  1. **Format, always.** Every submitted member is a syntactically valid address,
+     trimmed and lower-cased first (BR-07). This applies to external members too.
+  2. **Locality decides whether existence is checked.** A member is *local* when
+     its domain part has a row in `domain` — the same test BR-16 applies to the
+     alias address. A member whose domain has no `domain` row is *external* and
+     is accepted on format alone: distribution to addresses off this server is
+     the ordinary use of an alias, and restricting the **destination** is what a
+     hosting provider does to a customer, which `docs/00-overview.md` §3 rules
+     out — administrators here are staff. A domain that exists only as an
+     `alias_domain` row is treated as **external** for this rule, and is
+     therefore accepted: an alias domain has no accounts of its own
+     (`docs/02-domain.md` §3), so there is no row to check the member against,
+     and refusing it would reject an address the server does deliver.
+  3. **A local member must exist**, checked with an explicit `EXISTS` on the
+     `vmail` connection inside the same transaction as the insert. It catches the
+     typo that otherwise creates a member that silently bounces every message
+     the alias distributes.
+  **Which tables the `EXISTS` consults is part of the rule, not an implementation
+  detail.** Because collisions are permitted (BR-17), "the local address exists"
+  can be true of more than one object at once, and a check written against
+  `mailbox` alone would silently reject valid targets. The check is satisfied by
+  **any one** of: a `mailbox` row whose `username` is the member; an `alias` row
+  whose `address` is the member; or a `forwardings` row whose `address` is the
+  member with `is_alias = 1` — a per-account alias
+  (`docs/features/mailbox-aliases-forwardings.md` BR-16). Each of the three is a
+  deliverable local address, and the first match ends the check; the query is
+  anchored on the address column in every case and never on a flag alone (BR-05).
+  Rows with `is_maillist = 1` do not satisfy it, because mailing lists are
+  unmodelled in v1 (`docs/02-domain.md` §12). `active = 0` on the matched row
+  does **not** fail the check: an existing but disabled member is a state an
+  administrator chose, not a typo. **No circular or self-referencing check is
+  performed** — an alias may name itself or form a loop with another alias, and
+  refusing that would need a graph walk that still could not see loops formed
+  through per-account aliases and external hops, so an incomplete guarantee is
+  not offered. **No restriction on the member's domain** relative to the actor's
+  scope: a member may sit in a domain the actor does not administer, or off the
+  server entirely. Authorization is decided on the alias account's own domain and
+  never on a destination (BR-12, `docs/policies/authorization.md` §2)
+  (`docs/reference/decisions-needed.md` Q17, answered 2026-08-15, option B).
+- **BR-20** — **A member-less standalone alias is valid, and the interface flags
+  it.** Creating an alias requires no member: `POST /aliases` writes the `alias`
+  row alone, and members are added afterwards through
+  `POST /aliases/{address}/members`, which is the natural order and keeps the
+  create a single-table write. Removing the last member is likewise allowed, and
+  `DELETE /aliases/{address}/members/{forwarding}` never refuses on the ground
+  that it is the last one — an alias whose members are being replaced passes
+  through the empty state legitimately. The cost is stated rather than
+  eliminated: **a member-less alias accepts mail and delivers it nowhere**, so
+  every screen that shows such an alias — the listing and the detail page —
+  carries a visible warning to that effect, and the member count is shown beside
+  every alias in the listing so the state is never inferred. The black hole is
+  therefore visible rather than impossible, which is the trade made here: the
+  alternative would force a two-table transactional create for an invariant no
+  other rule depends on, and would forbid a legitimate intermediate step in
+  editing (`docs/reference/decisions-needed.md` Q18, answered 2026-08-15, option
+  B).
+- **BR-21** — **Members expose create and delete only. `forwardings.active` is
+  always written as `1` and never updated.** There is no per-row enable/disable
+  for a member: no endpoint, no control, no field, and no member state between
+  present and absent. A member is suspended by removing it and restored by adding
+  it again. The reason is that **nothing sourced says any iRedMail component
+  reads `forwardings.active` on an `is_list` row** — the probe that would settle
+  it is `docs/reference/decisions-needed.md` E6 — and a toggle that appears to
+  suspend a member while mail keeps being delivered to them is worse than no
+  toggle: it is a promise Mailward cannot keep. This matches the treatment
+  `docs/features/domain-admins.md` BR-10 already gives the identical doubt on
+  `domain_admins.active`. Reads still bind `1`/`0` and never `true`/`false`
+  (BR-09), and a member row found with `active = 0` — written by iRedAdmin or by
+  hand — is listed as an ordinary member rather than hidden, because Mailward
+  does not know that the column means anything. Exposing the toggle later is
+  additive and requires E6 to show the column is honoured first
+  (`docs/reference/decisions-needed.md` Q19, answered 2026-08-15, option A).
 
 ## Data
 
@@ -175,10 +249,13 @@ Two tables in `vmail`, and the split between them is the point of the feature.
 | `domain`, `dest_domain` | Population rule undecided — OQ-AL-02 |
 | `is_list` | `1` |
 | `is_forwarding`, `is_alias`, `is_maillist` | `0` |
-| `active` | `1`/`0`; meaning for an `is_list` row undecided — OQ-AL-07 |
+| `active` | always written `1`; never updated, no toggle exposed — BR-21 |
 
 Read-only context: `domain.aliases` for the limit in BR-06, and `domain` itself
-for the locality check in BR-16.
+for the locality check in BR-16 and for deciding whether a member is local
+(BR-19). For a local member's existence check, `mailbox.username`,
+`alias.address` and `forwardings.address` with `is_alias = 1` are read and never
+written (BR-19).
 
 No table in Mailward's own database is required by this feature. There are no
 foreign keys and no cross-database joins in either direction
@@ -201,8 +278,11 @@ its own backend over one (`docs/decisions/0004-inertia-vue.md`).
 | GET | `/aliases/{address}/edit` | `Aliases/Edit` |
 | PUT | `/aliases/{address}` | Update `name`, `accesspolicy`, `active` |
 | DELETE | `/aliases/{address}` | Delete the alias, its members and the rows naming it as a destination (BR-10, BR-18) |
-| POST | `/aliases/{address}/members` | Add one member row (`is_list = 1`) |
-| DELETE | `/aliases/{address}/members/{forwarding}` | Remove that member row only |
+| POST | `/aliases/{address}/members` | Add one member row (`is_list = 1`, `active = 1`), validated per BR-19 |
+| DELETE | `/aliases/{address}/members/{forwarding}` | Remove that member row only; permitted even when it is the last (BR-20) |
+
+There is no endpoint that changes a member row: no `PUT`, and nothing that
+writes `forwardings.active` (BR-21).
 
 Input is validated in FormRequests, output shaped by Resources
 (`docs/01-architecture.md` §7). Permission props sent to the frontend show and
@@ -224,8 +304,13 @@ enums).
 | Inactive | `active = 0` |
 | Expired | `expired <= now()` |
 
-**Member** — present or absent. A member row's `active` column exists, but
-whether anything honours it is OQ-AL-07, so v1 has no third member state.
+**Member** — present or absent, and nothing else. A member row's `active` column
+exists and is always `1`; v1 exposes no transition on it and therefore has no
+third member state (BR-21).
+
+**An alias with no members is a valid state**, reachable by creating one and by
+removing the last member, and it is flagged in the interface rather than
+prevented (BR-20).
 
 ## Acceptance Criteria
 
@@ -309,6 +394,56 @@ PostgreSQL (`docs/01-architecture.md` §8).
   those deletes and the deletes of BR-10 executed inside a single `vmail`
   transaction, and re-running the deletion afterwards succeeds without error and
   removes nothing further (BR-14, BR-18).
+- **AC-21** — given an alias in `example.com` and no account anywhere named
+  `ghost@example.com`, when that address is submitted as a member, then the
+  request fails validation on the member address and no `forwardings` row is
+  written — `example.com` has a `domain` row, so the member is local and must
+  exist (BR-19).
+- **AC-22** — given the same alias, when `anyone@external.example` is submitted
+  as a member and no `domain` row exists for `external.example`, then the member
+  is created; and when `not-an-address` is submitted, then it fails validation on
+  format, external or not (BR-19).
+- **AC-23** — given a mailbox `bob@example.com`, a standalone alias
+  `team@example.com` and a per-account alias row
+  (`forwardings.address = 'sales@example.com'`, `is_alias = 1`), when each of the
+  three addresses is submitted as a member of another alias, then all three are
+  accepted; and when the executed statements are inspected, then the existence
+  check consulted `mailbox`, `alias` and `forwardings` rather than `mailbox`
+  alone, and every one of those queries was anchored on an address column rather
+  than on a flag (BR-19, BR-05, BR-17).
+- **AC-24** — given `list.test` exists only as an `alias_domain` row targeting
+  `example.com`, and no account named `sales@list.test` exists anywhere, when
+  `sales@list.test` is submitted as a member, then it is **accepted** and the row
+  is written — an alias domain is external for this rule, not a locality failure
+  (BR-19).
+- **AC-25** — given an alias `all@example.com`, when `all@example.com` is
+  submitted as its own member, then the request succeeds; and given two aliases
+  each holding the other as a member, when both are created, then both succeed
+  and no executed statement walked the member graph (BR-19).
+- **AC-26** — given a local member whose `mailbox` row has `active = 0`, when it
+  is submitted as a member, then the request succeeds: existence is checked,
+  liveness is not (BR-19).
+- **AC-27** — given a domain admin administering `example.com` only, when they
+  add a member in `other.com` to an alias in `example.com`, then the request
+  succeeds — the member's domain is not scoped; and when they attempt the same
+  operation on an alias in `other.com`, then the response is 403 (BR-19, BR-12).
+- **AC-28** — given `POST /aliases` with no member supplied, when it is
+  submitted, then the alias is created, exactly one `alias` row exists, no
+  `forwardings` row is written, and the response is not a validation failure
+  (BR-20).
+- **AC-29** — given an alias with exactly one member, when that member is
+  removed, then the request succeeds, the `alias` row survives with zero members,
+  and both `Aliases/Index` and `Aliases/Show` render a warning that the alias
+  delivers nowhere, with the member count reported as `0` (BR-20).
+- **AC-30** — given a member is created through
+  `POST /aliases/{address}/members`, when the row is read back, then `active` is
+  the integer `1`; and when the application's routes are enumerated, then none
+  resolves for updating a member row or for toggling `forwardings.active`
+  (BR-21).
+- **AC-31** — given an existing member row written outside Mailward with
+  `active = 0`, when `Aliases/Show` renders, then the member is listed like any
+  other, no control offers to enable it, and no statement issued by the page
+  writes `forwardings.active` (BR-21).
 
 ## Out of Scope
 
@@ -341,21 +476,3 @@ PostgreSQL (`docs/01-architecture.md` §8).
   rule. `alias.domain` is presumably the domain part of `address` and
   `dest_domain` that of `forwarding`, but this is not decided anywhere, and
   BR-12 — the authorization scope key — depends on it.
-- **OQ-AL-04** — May a member address be outside the actor's administered
-  domains, or outside the server entirely, and must a member inside a locally
-  hosted domain correspond to an existing account? The scope rule
-  (`docs/policies/authorization.md` §2) governs the resource's domain and says
-  nothing about a forwarding destination. BR-16 settles locality for the
-  **alias address** and deliberately leaves the member address open; any answer
-  here must be consistent with BR-17 and **must not assume a collision is
-  refused** — an address may legitimately be both a mailbox and an alias, so
-  "the target exists" can be true of two different objects at once
-  (`docs/reference/decisions-needed.md` Q17).
-- **OQ-AL-07** — Is `forwardings.active = 0` honoured for an `is_list` row —
-  can a member be disabled rather than removed? Nothing sourced says any
-  iRedMail component reads it. The same doubt is recorded for
-  `domain_admins.active` in `docs/reference/open-questions-research.md`,
-  "Still unknown", OQ-02.
-- **OQ-AL-08** — Must a standalone alias have at least one member? Nothing in
-  `docs/` decides whether a member-less alias is a valid state to create or to
-  leave behind after removing the last member.

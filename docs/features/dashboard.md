@@ -107,6 +107,43 @@ feature adds no role and relaxes no scope.
   fully computable, and "domains at their limit" covers `domain.aliases` and
   `domain.mailboxes`; `domain.maillists` stays excluded for the separate reason
   in Out of Scope.
+- **BR-19** — **Every count on this screen counts every row, and carries an "of
+  which inactive" figure beside it.** The headline number is the unfiltered count
+  — mailboxes, standalone aliases and domains alike — so it matches the total the
+  corresponding listing reports, and the obvious follow-up is answered on the
+  same screen instead of on a second one. The breakdown figure counts the rows in
+  scope that are **not live**: `active = 0`, or `expired <= now()` where the
+  table has an `expired` column (`mailbox`, `alias`, `domain` all do). A row that
+  is both inactive and expired is counted once in the breakdown, not twice. The
+  same answer governs the **domain count**: a disabled domain is counted in the
+  headline and reported in its breakdown, and it is not removed from the
+  aggregate — its accounts still exist and are still administered. Both figures
+  bind `1`/`0` and evaluate `expired > now()` per BR-14, never against a sentinel
+  constant. The alternative — counting only live rows — was refused because the
+  dashboard figure would then disagree with every listing total in the product,
+  which is a support ticket waiting to happen rather than a nuance
+  (`docs/reference/decisions-needed.md` Q21, answered 2026-08-15, option A).
+- **BR-20** — **"Last login" is the greater of `last_login.imap` and
+  `last_login.pop3`. `lda` is excluded.** `lda` records a *delivery* into the
+  account, not a person connecting to it: an account nobody has read for two
+  years looks active under `lda` for as long as anything still sends mail to it,
+  which inverts the figure this screen exists to give. The two remaining columns
+  are compared after the reliability filter of BR-12, so an unreliable value
+  never wins the comparison: if one column is unreliable the other is used alone,
+  and if both are unreliable the account's last login is reported **unknown** and
+  the account is not ranked (BR-12). If both are absent or NULL the account is
+  reported as **never logged in**, which stays distinguishable from unknown
+  (BR-13). **An account is dormant when it has no such login within a
+  configurable threshold whose default is 90 days.** The threshold is an instance
+  setting; a change to it is a `settings` write and is therefore audited
+  (`docs/features/audit-log.md` BR-17). The default has no external basis and is
+  a chosen number, and the screen states the threshold in force beside the figure
+  so the reader is never guessing which one produced it. Accounts reported
+  unknown and accounts reported never are **not** silently folded into the
+  dormant count: never-logged-in accounts are counted and labelled separately,
+  and unknown accounts are excluded from both counts and surfaced as a
+  `degraded` figure (States) rather than as zero
+  (`docs/reference/decisions-needed.md` Q22, answered 2026-08-15, option A).
 
 ## Data
 
@@ -118,7 +155,7 @@ feature adds no role and relaxes no scope.
 | `mailbox` | `username`, `domain`, `quota`, `active`, `expired` | account count, allocated quota, correlation key for usage (BR-03) |
 | `alias` | `address`, `domain`, `active` | standalone alias count, and the only population counted against `domain.aliases` (BR-18) |
 | `used_quota` | `username`, `bytes`, `messages` — **never `domain`** | usage (BR-03, BR-04) |
-| `last_login` | `username`, `imap`, `pop3`, `lda` | dormancy (BR-11, BR-12, BR-13) |
+| `last_login` | `username`, `imap`, `pop3` — **never `lda`** | dormancy (BR-11, BR-12, BR-13, BR-20) |
 | `domain_admins` | `username`, `domain` | the actor's scope (`policies/authorization.md` §2) |
 
 `domain.aliases`, `mailboxes` and `maillists` are 32-bit on MySQL and 64-bit on
@@ -128,21 +165,25 @@ PostgreSQL (matrix D7); they are read here and never written.
 
 | Figure | Definition |
 |---|---|
-| Domains | count of `domain` rows in scope |
-| Mailboxes | count of `mailbox` rows in scope |
-| Standalone aliases | count of `alias` rows in scope |
+| Domains | count of every `domain` row in scope, with "of which inactive" beside it (BR-19) |
+| Mailboxes | count of every `mailbox` row in scope, with "of which inactive" beside it (BR-19) |
+| Standalone aliases | count of every `alias` row in scope, with "of which inactive" beside it (BR-19) |
 | Quota allocated | sum of `mailbox.quota` in scope, overall and per domain |
 | Quota used | sum of `used_quota.bytes` for the mailboxes in scope, overall and per domain, correlated by `username` (BR-03) |
 | Domains at their limit | domains in scope where a non-zero limit has been reached (BR-07, BR-08); the alias limit counts `alias` rows only (BR-18) |
-| Dormant accounts | mailboxes in scope whose most recent recorded login is older than the dormancy threshold, excluding unreliable values (BR-12, BR-13) |
+| Dormant accounts | mailboxes in scope whose last login — the greater of `imap` and `pop3`, `lda` excluded — is older than the configured threshold, default 90 days; unreliable values excluded, never-logged-in counted separately (BR-20, BR-12, BR-13) |
+| Never logged in | mailboxes in scope with no `last_login` row and no non-NULL `imap` or `pop3` value; counted and labelled separately from dormant (BR-20, BR-13) |
 
-Whether the counts include inactive or expired rows is OQ-DASH-02; what
-"most recent login" means across the three columns, and what the threshold is,
-is OQ-DASH-04. The unit of `mailbox.quota` is OQ-DASH-01 and every quota figure
-above depends on it.
+Every count above is an all-rows count with an "of which inactive" figure beside
+it, and that includes the domain count (BR-19). The unit of `mailbox.quota` is
+OQ-DASH-01 and every quota figure above depends on it.
 
-**Mailward's own database**: nothing is read or written by this feature, and no
-figure crosses the two databases in a single query (BR-10).
+**Mailward's own database**: nothing is written by this feature, and the only
+thing read is the dormancy threshold of BR-20 from the instance `settings`. It is
+read as a scalar before the aggregates run, so no figure crosses the two
+databases in a single query (BR-10) and nothing joins them (BR-17 keeps the
+screen read-only; changing the threshold is the settings feature's write, not
+this one's).
 
 ## Contracts
 
@@ -176,7 +217,9 @@ degraded     a figure could not be computed reliably and says so
 ```
 
 - `degraded` is per figure, never for the whole page: an unreliable
-  `last_login` value (BR-12) suppresses the dormancy figure, not the counts.
+  `last_login` value (BR-12) suppresses the dormancy figure, not the counts. An
+  account whose `imap` and `pop3` values are both unreliable is reported unknown
+  and enters neither the dormant count nor the never-logged-in count (BR-20).
 - A figure is never rendered as `0` when the truth is "not computable". Zero and
   unknown are different values on this screen.
 - No transition is triggered by the user; the state is a function of the data at
@@ -245,6 +288,48 @@ degraded     a figure could not be computed reliably and says so
   it, when the dashboard renders, then the domain appears in "domains at their
   limit" for the alias limit, the reported alias count is `2`, and no executed
   statement counts rows in `forwardings` or in `alias_domain`. *(BR-18)*
+- **AC-21** — Given a domain in scope holding five mailboxes of which two have
+  `active = 0` and one has an `expired` date in the past, when the dashboard
+  renders, then the mailbox count is `5` and the "of which inactive" figure is
+  `3`; and the same count equals the paginator total of `GET /mailboxes` for the
+  same actor. *(BR-19)*
+- **AC-22** — Given a mailbox that is both `active = 0` and expired, when the
+  breakdown is computed, then it contributes `1` to the inactive figure, not `2`.
+  *(BR-19)*
+- **AC-23** — Given a global admin, three domains of which one is disabled and
+  one is expired, when the dashboard renders, then the domain count is `3` with
+  an inactive figure of `2`, and the disabled domain's mailboxes are still
+  included in the mailbox count. *(BR-19)*
+- **AC-24** — Given the counts run on PostgreSQL, when the aggregate statements
+  are inspected, then each is a single aggregate query per figure, `active` is
+  bound as `1`/`0` and expiry is expressed as `expired > now()` with no sentinel
+  literal in any statement. *(BR-19, BR-14, BR-09)*
+- **AC-25** — Given a mailbox whose `lda` is today and whose `imap` and `pop3`
+  are both two years old, when the dormancy figure is computed with the default
+  threshold, then the account **is** dormant; and when the executed statements
+  and the computed props are inspected, then no `lda` value entered the
+  comparison. *(BR-20)*
+- **AC-26** — Given a mailbox whose `imap` is 200 days old and whose `pop3` is 10
+  days old, when the figure is computed at the default 90-day threshold, then the
+  account is not dormant — the greater of the two decides. *(BR-20)*
+- **AC-27** — Given a mailbox whose `imap` is negative or in the future and whose
+  `pop3` is 200 days old, when the figure is computed, then the `pop3` value
+  decides and the account is dormant; and given both values are unreliable, then
+  the account's last login is reported unknown, it appears in neither the dormant
+  count nor the never-logged-in count, and the figure is rendered `degraded`
+  rather than `0`. *(BR-20, BR-12)*
+- **AC-28** — Given a mailbox with no `last_login` row, and a mailbox whose row
+  has NULL in both `imap` and `pop3`, when the figures are computed, then both
+  are counted as never logged in, both are distinguishable in the props from the
+  unknown case of AC-27, and neither is counted as dormant. *(BR-20, BR-13)*
+- **AC-29** — Given the threshold is changed from 90 to 30 days, when the
+  dashboard is rendered again, then an account last seen 60 days ago moves into
+  the dormant count, the screen states `30 days` beside the figure, and an
+  `audit_log` entry exists for the `settings` write. *(BR-20,
+  `docs/features/audit-log.md` BR-17)*
+- **AC-30** — Given a fresh install whose threshold has never been configured,
+  when the dashboard renders, then the threshold in force is 90 days and it is
+  stated on the screen. *(BR-20)*
 
 ## Out of Scope
 
@@ -257,9 +342,14 @@ degraded     a figure could not be computed reliably and says so
   (`02-domain.md` §12), so the count that would be compared against it does not
   exist; `02-domain.md` §2 requires surfacing all three limits and this feature
   narrows that to the two that are computable.
-- `domain.maxquota` as a limit figure — `02-domain.md` §2 describes it without
-  assigning it a rule, and `docs/features/mailboxes.md` OQ-M6 already holds the
-  question.
+- `domain.maxquota` as a limit figure. It is now a rule —
+  `docs/features/mailboxes.md` BR-28 makes it a cap on an **individual** mailbox
+  quota rather than on the domain's total — so there is no domain-level
+  allocation figure for it to be compared against, and it stays off this screen.
+  Whether a mailbox exceeds its domain's cap is refused at write time, not
+  reported here.
+- Setting the dormancy threshold. The threshold is read here (BR-20) and written
+  by the settings feature; this screen offers no control that changes it.
 - Charts, historical series and trends. Nothing in `vmail` retains history, and
   Mailward stores no snapshots (`02-domain.md` §13).
 - Service status, mail queue, log viewer, quarantine and throttling figures
@@ -278,20 +368,6 @@ degraded     a figure could not be computed reliably and says so
   the wrong way, and both readings render a plausible-looking number. Same
   question as `docs/features/mailboxes.md` OQ-M1; the dashboard is where a wrong
   answer becomes an administrator's decision.
-- **OQ-DASH-02** — Do the account counts include inactive and expired rows, or
-  only active, unexpired ones — and is the breakdown shown? The scope line says
-  only "account counts". The same question decides whether a disabled domain
-  contributes to the domain count.
-- **OQ-DASH-04** — What is "last login" when `last_login` has three columns
-  (`imap`, `pop3`, `lda`) — the greatest of the three, or one nominated
-  protocol? And what threshold makes an account dormant? `02-domain.md` §10
-  states the purpose without defining either.
-- **OQ-DASH-05** — Are `domain_admins` rows with `active = 0` or a past
-  `expired` excluded from the actor's domain set? Every figure on this screen
-  changes with the answer.
-  `docs/reference/open-questions-research.md` (OQ-02, Still unknown) records
-  that nothing sourced says iRedMail reads either column. Same question as
-  `docs/features/authentication.md` OQ-AUTH-05.
 - **OQ-DASH-06** — How is a global admin's domain set resolved? If it is derived
   from `domain_admins`, the `ALL` sentinel row joins to no row in `domain` and
   the dashboard silently produces zero rows for exactly the actor who should see

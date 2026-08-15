@@ -112,7 +112,47 @@ The schema belongs to iRedMail and changes across releases. Mailward declares a
 supported version range, detects the installed version at runtime, and refuses
 to operate outside it rather than corrupting data.
 
-The range is set once the first install is validated. See Open Questions.
+**The range is iRedMail 1.7.3 (April 2025) and later, on MySQL/MariaDB or
+PostgreSQL. Validated against 1.8.4.** An install below the floor is **refused
+with a clear message** naming the detected shape and the required minimum,
+rather than starting and half-working (`docs/reference/decisions-needed.md` Q23,
+answered 2026-08-15, option A).
+
+Why 1.7.3 is the floor, argued from schema shape rather than from an upstream
+policy — iRedMail publishes no support-lifetime statement to anchor a range to,
+so this is Mailward's own choice
+(`docs/reference/current-iredmail-behaviour.md` §4):
+
+- **1.7.3 is the last release that added columns to `vmail.mailbox`** —
+  `first_name`, `last_name`, `mobile`, `telephone`, `birthday`, `recovery_email`
+  — and to `vmail.deleted_mailboxes` — `bytes`, `messages`. Below it those
+  columns do not exist, so a feature that reads them fails with a SQL error
+  instead of degrading, and `docs/01-architecture.md` §2 forbids Mailward from
+  adding them itself. The floor therefore has to be the release that ships them.
+- **1.7.2 performed the `utf8mb4` conversion** on MySQL, which the case handling
+  of `docs/decisions/0005-lowercase-canonical-addresses.md` depends on. A floor
+  at 1.7.3 satisfies it by being later.
+- **1.8.0 is inside the range, not above it.** It is the first release whose
+  Dovecot configuration is generation 2.4, and the two generations differ on what
+  an unprefixed password hash means. A range that stopped below 1.8.0 would
+  exclude precisely the installs where that difference matters.
+
+Two consequences, both deliberate:
+
+- **Detection is inferred from schema shape.** `/etc/iredmail-release` is a file,
+  not a column, and Mailward has SQL connections only
+  (`docs/01-architecture.md` §3) — no version string is readable over them. The
+  version floor is therefore detected by the presence of the columns 1.7.3
+  introduced, together with the nine expected tables, and the refusal path is a
+  bootstrap concern rather than a login one.
+- **The real test matrix is two SQL drivers × two Dovecot configuration
+  generations**, not two drivers alone as `docs/01-architecture.md` §8 currently
+  says. Password verification is the axis that differs, and a second disposable
+  VM on a 2.4 distribution is needed before the hasher can be called done.
+
+Lowering the floor later is a deliberate decision with a stated cost — a second
+column set in `docs/reference/schema-type-matrix.md` and permanently conditional
+reads for eight columns — and never something to discover in production.
 
 ## 9. Open Questions
 
@@ -125,11 +165,6 @@ It settles the maildir layout and the password scheme inventory. It also names
 what Mailward replaces: an existing Laravel panel writing into `vmail`, which
 is discarded at the migration — only the mail infrastructure data travels.
 
-- **OQ-01** — Which iRedMail versions form the initial supported range?
-  *Proposal on the table:* 1.7.3 (April 2025) and later, because 1.7.3 is the
-  last release to add columns to `mailbox` and `deleted_mailboxes`, and §2 of
-  the architecture forbids Mailward from adding them itself. Current stable is
-  1.8.4. Awaiting a decision.
 - **OQ-02** — How is a global admin represented in `domain_admins`? Is a row
   written with a sentinel domain, or does `isglobaladmin` alone suffice?
   *Sourced answer:* both are written, the sentinel being the literal `ALL`.
@@ -154,6 +189,49 @@ is discarded at the migration — only the mail infrastructure data travels.
   a plausible number on screen, and one of them is wrong by a factor of a
   million.
 
+### Opened by the decisions of 2026-08-15
+
+> **OQ-06 — Is the health check a v1 feature, and does it need a specification of
+> its own?**
+>
+> Four separate decisions now assign work to "the health check", and **no feature
+> document owns it**: there is no `docs/features/health-check.md`, no route, no
+> contract, no actor table and no acceptance criteria for it anywhere. Each
+> owning document states what the check must surface, and none of them states
+> what the check *is*. What it now carries:
+>
+> 1. **Unverifiable password schemes** — scan the `{SCHEME}` prefixes in
+>    `mailbox.password` and report every row this instance cannot verify,
+>    grouped by scheme, plus the banner shown to signed-in administrators
+>    (`docs/features/authentication.md` BR-20;
+>    `docs/reference/decisions-needed.md` Q12).
+> 2. **The iRedMail version floor** — report an install below the supported range
+>    of §8, which is otherwise only enforced at bootstrap
+>    (`docs/reference/decisions-needed.md` Q23).
+> 3. **Global-admin drift** — report `mailbox.isglobaladmin` and the
+>    `domain_admins` `'ALL'` sentinel disagreeing, repairing nothing
+>    (`docs/features/domain-admins.md` BR-19;
+>    `docs/reference/decisions-needed.md` Q24).
+> 4. **Mixed-case addresses** — the pre-existing scan for rows that are dead
+>    accounts on PostgreSQL
+>    (`docs/decisions/0005-lowercase-canonical-addresses.md`, Correction —
+>    2026-08-15, and its Consequences).
+>
+> All four are the same read-only pass over `vmail`, and all four are findings an
+> operator acts on rather than states Mailward changes. What is undecided is
+> whether v1 ships it at all, and if so: where it lives (a panel screen, an
+> artisan command, or both), who may run it (global admin only, by analogy with
+> the audit log), whether it runs on a schedule or only on demand, how the banner
+> of item 1 is computed without scanning `mailbox` on every request, and whether
+> a finding may ever offer a repair action — item 3 says explicitly that it must
+> not repair during a read, while `0005` contemplates a check that "offers to
+> normalise" mixed-case rows, so the two are not yet consistent with each other.
+> **Deferring it has a stated cost:** three of the four decisions above are
+> answered on the assumption that this surface exists, so without it an
+> unverifiable scheme, a drifted global admin and a mixed-case row are each
+> known to Mailward and reported to nobody.
+
 The nine feature documents in `docs/features/` raise roughly sixty further
-questions. They are deduplicated and ranked in
-`docs/reference/decisions-needed.md`, which is the working list.
+questions. They were deduplicated and ranked in
+`docs/reference/decisions-needed.md`, which is now a closed record: every
+question on it has been answered, and what remains there is empirical.

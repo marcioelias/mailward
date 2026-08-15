@@ -90,8 +90,8 @@ feature implements its §6 login gate and narrows nothing in it.
 - **BR-12** — A stored password in a scheme this instance cannot verify is a
   **hard, visible failure**, never a silent denial (`decisions/0007`). It is not
   reported internally as a credential mismatch, and it is distinguishable from
-  one in the log. Where that failure surfaces to an anonymous caller is
-  OQ-AUTH-01.
+  one in the log. *Where* that failure is visible is BR-20: on operator surfaces
+  only, never to the caller.
 - **BR-13** — Signing in writes nothing to `vmail`: no password rehash and no
   `last_login` update. `last_login` is Dovecot's and is read-only for Mailward
   (`02-domain.md` §10, matrix D13); the password is changed only by the explicit
@@ -131,6 +131,72 @@ feature implements its §6 login gate and narrows nothing in it.
     would also give the log a row per guess, which is what a rate limiter is
     for. Neither the entry nor the log line ever carries the password or the
     hash (BR-17).
+- **BR-20** — **An unverifiable password scheme is operator-visible only.** The
+  "hard, visible failure" required by BR-12 and `decisions/0007` is scoped to
+  operator surfaces, and **BR-07 is untouched**: the caller receives the same
+  status, the same body, the same redirect and the same observable timing as an
+  unknown address or a wrong password. Telling an anonymous caller that this
+  address exists but uses a scheme Mailward cannot verify would confirm the
+  account exists, which is precisely the oracle `01-architecture.md` §5 exists
+  to close — and the form is an oracle against every mailbox on the server, not
+  only against administrators. Three surfaces carry the failure instead, and all
+  three require shell access or an authenticated administrator:
+  1. **the application log** — one entry per attempt, identifying the
+     unverifiable scheme and distinguishable from a credential mismatch (BR-12),
+     carrying neither the submitted password nor the stored hash (BR-17);
+  2. **a health check** that scans the `{SCHEME}` prefixes present in
+     `mailbox.password` and reports every row whose scheme this instance cannot
+     verify, grouped by scheme with a count per scheme. It reports addresses and
+     scheme names; it never reports a hash. It is a read: it repairs nothing and
+     writes nothing to `vmail`;
+  3. **a banner shown to signed-in administrators** whenever that check has a
+     non-empty result, so the finding reaches somebody who can act on it rather
+     than waiting in a log file until a user complains.
+  A row in this state is a dead account — its owner cannot collect mail either —
+  so silence is the one outcome that is not acceptable, and the caller is the
+  one audience that may not be told. `decisions/0007` is corrected to say so by
+  a dated addition rather than a rewrite, because these records are append-only
+  (`0007`, Correction — 2026-08-15). Whether the health check is a v1 feature
+  with a specification of its own is `00-overview.md` OQ-06
+  (`docs/reference/decisions-needed.md` Q12, answered 2026-08-15, option A).
+- **BR-21** — **`isadmin`/`isglobaladmin`, `active` and `expired` are re-checked
+  on every request, and the check fails closed.** This makes BR-18 true as
+  written rather than aspirational: the admin gate does not run at login only.
+  Every authenticated request re-reads the actor's `mailbox` row by primary key
+  on the `vmail` connection and requires, in order, that the row still exists,
+  that `active = 1`, that `expired > now()` (BR-05) and that `isadmin = 1` or
+  `isglobaladmin = 1` (BR-03). Any of the four failing invalidates the session
+  and redirects to `/login` with the same generic message; the requested page is
+  not rendered, and there is no partial or degraded render. **Demotion,
+  deactivation and deletion therefore take effect immediately**, not at the end
+  of a 120-minute session: without this, clearing `isadmin`
+  (`docs/features/domain-admins.md` BR-16) leaves the demoted account holding
+  the panel for up to two hours, and every lockout rule in
+  `docs/policies/authorization.md` §5 is advisory for the length of a session.
+  The actor's scope — global, or the administered-domain set — is re-derived from
+  `domain_admins` in the same way and is never trusted from session state, so a
+  revoked grant narrows the very next request. The cost is one indexed
+  primary-key lookup per request, on a connection every request already opens
+  (`docs/reference/decisions-needed.md` Q13, answered 2026-08-15, option A).
+- **BR-22** — **Two-factor authentication is not in v1.** Login is the two steps
+  of BR-02 and BR-03 and nothing else: there is no challenge state between step
+  2 and `authenticated`, no enrolment, no verification, no recovery codes, no
+  device reset path and no instance-wide enforcement setting. `two_factor_secrets`
+  (`02-domain.md` §13) **stays specified and unbuilt** — no migration creates it,
+  and no code path reads or writes it. Two consequences are stated here rather
+  than left to be inferred from documents that mention the table: the
+  `two_factor_secrets` step of the deletion cascades
+  (`docs/features/mailboxes.md` BR-18, `docs/features/domains.md` BR-17,
+  `docs/features/aliases.md` BR-14) is a **permanent no-op in v1**, and the
+  acceptance criteria in those documents that exercise such a row stay specified
+  but are not runnable until the table exists. `remember_token` and
+  `two_factor_secret` remain in the audit redaction list (BR-17), which costs
+  nothing and is correct if 2FA ever arrives; a rate limiter registered for a
+  two-factor challenge that cannot occur is dead configuration and is removed.
+  The v1 scope list does not include 2FA (`00-overview.md` §5), and this is a
+  deliberate scope decision rather than an omission: adding it later is a new
+  state between step 2 and `authenticated` plus two contracts
+  (`docs/reference/decisions-needed.md` Q14, answered 2026-08-15, option A).
 
 ## Data
 
@@ -146,7 +212,8 @@ feature implements its §6 login gate and narrows nothing in it.
 
 **Read — `vmail.domain_admins`**: the administered-domain set of a domain admin,
 used to build the session's scope (`policies/authorization.md` §1, §2). Not part
-of the login gate (BR-03), and see OQ-AUTH-05.
+of the login gate (BR-03). A grant that is inactive or expired confers
+nothing (`domain-admins.md` BR-10).
 
 **Written — Mailward's own database**, all keyed by email address
 (`02-domain.md` §13):
@@ -156,7 +223,7 @@ of the login gate (BR-03), and see OQ-AUTH-05.
 | `sessions` | the panel session |
 | `panel_profiles` | last panel login (BR-15) |
 | `audit_log` | successful sign-ins, and authorization failures at step 2 (BR-06, BR-19). Step-1 failures and throttled requests are not written here (BR-19) |
-| `two_factor_secrets` | read only if 2FA is in v1 — OQ-AUTH-03 |
+| `two_factor_secrets` | **never, in v1** — specified and unbuilt (BR-22) |
 
 The remember-me token store is required by `01-architecture.md` §5 but is not
 enumerated in `02-domain.md` §13 — OQ-AUTH-04.
@@ -181,7 +248,8 @@ Error cases:
   not a field-level error that distinguishes "not an address" from
   "no such account" (BR-07).
 - Rate limiting is the only response that may differ, and it is keyed and
-  thresholded per OQ-AUTH-02.
+  keyed by the submitted address and the IP together, at five attempts a
+  minute (BR-08).
 - An unauthenticated request to any other panel route is redirected to `/login`
   and the target is not rendered (BR-18).
 
@@ -203,9 +271,14 @@ anonymous --submit--> [step 1: credentials]
 - Repeated denials lead to `throttled`, from which no `vmail` query is made
   (BR-08).
 - `authenticated` carries the actor's scope: global, or the set of administered
-  domains, possibly empty (BR-16).
-- A 2FA challenge state between step 2 and `authenticated` is not specified
-  here — OQ-AUTH-03.
+  domains, possibly empty (BR-16). The scope is re-derived on every request, not
+  carried in session state (BR-21).
+- `authenticated` is **not a latch**. Both steps are re-evaluated on every
+  request, so an account that stops satisfying step 2 — demoted, deactivated,
+  expired or deleted — leaves the state on its next request rather than at the
+  end of the session (BR-21).
+- There is **no 2FA challenge state** between step 2 and `authenticated` in v1
+  (BR-22).
 - Forbidden: reaching `authenticated` from step 1 alone (BR-03).
 
 ## Acceptance Criteria
@@ -281,6 +354,48 @@ anonymous --submit--> [step 1: credentials]
   throttled request, when each is submitted, then `audit_log` is unchanged by
   all five; and given correct credentials for a mailbox with no admin flag, then
   one authorization-failure entry is written. *(BR-19, BR-06)*
+- **AC-22** — Given an administrator whose stored `password` is in a scheme this
+  instance cannot verify, when the **correct** password is submitted, then the
+  HTTP status, the redirect target, the rendered message and the measured
+  response time are indistinguishable from a wrong password for a real
+  administrator and from an unknown address; and no response body, prop, header,
+  flash message or validation error names the scheme, the address, or the fact
+  that verification was attempted at all. *(BR-20, BR-07)*
+- **AC-23** — Given that same attempt, when the application log is inspected,
+  then it holds one entry identifying the unverifiable scheme, distinguishable
+  from a credential-mismatch entry, containing neither the submitted password
+  nor the stored hash; and `audit_log` is byte-for-byte unchanged, because a
+  step-1 failure is not an administrative act. *(BR-20, BR-12, BR-17, BR-19)*
+- **AC-24** — Given a `mailbox` table holding rows in a verifiable scheme plus
+  three rows in a scheme this instance cannot verify, when the health check
+  runs, then it reports exactly those three, grouped by scheme prefix with a
+  count, no reported field contains a password hash, and no INSERT, UPDATE or
+  DELETE was issued on the `vmail` connection by the check; and when a signed-in
+  administrator renders any panel page while that result is non-empty, then the
+  banner is present. *(BR-20)*
+- **AC-25** — Given the same table with no such row, when the check runs, then
+  the result is empty and no banner is rendered on any page. *(BR-20)*
+- **AC-26** — Given an administrator with a live, valid session, when `isadmin`
+  and `isglobaladmin` are both cleared directly in `vmail` and that same session
+  then requests any panel route, then the request is refused, the session is
+  invalidated and the response redirects to `/login` — without waiting for the
+  session lifetime to elapse. *(BR-21, BR-18)*
+- **AC-27** — Given the same live session, when each of these is applied
+  independently — `active` set to `0`; `expired` set to a past date; the
+  `mailbox` row deleted outright — then the next request in that session is
+  refused and redirected in all three cases, the requested page is rendered in
+  none of them, and the deleted-row case raises no exception. *(BR-21, BR-04,
+  BR-05)*
+- **AC-28** — Given a live session belonging to a domain admin administering
+  `a.com` and `b.com`, when the `domain_admins` row for `b.com` is removed and
+  that session then lists mailboxes, then the listing covers `a.com` only: the
+  scope was re-derived from `vmail` and not read from the session. *(BR-21)*
+- **AC-29** — Given the v1 application, when its routes, migrations, Fortify
+  feature set and registered rate limiters are enumerated, then none exists for
+  two-factor enrolment, verification, recovery, challenge or instance-wide
+  enforcement; no migration creates `two_factor_secrets`; and no sign-in
+  response is ever an intermediate challenge — every outcome is a session or the
+  generic denial. *(BR-22)*
 
 ## Out of Scope
 
@@ -303,32 +418,11 @@ anonymous --submit--> [step 1: credentials]
 
 ## Open Questions
 
-- **OQ-AUTH-01** — Where does the unverifiable-scheme failure of BR-12 surface?
-  `decisions/0007` requires a hard, visible failure and forbids a silent denial;
-  `01-architecture.md` §5 requires an identical response for every failed login.
-  Showing an anonymous caller that this address exists but uses an unsupported
-  scheme satisfies the first and violates the second. Nothing in `docs/` decides
-  which wins — operator-visible only (log, health check, banner for signed-in
-  admins), or caller-visible.
-- **OQ-AUTH-02** — What are the rate-limiting thresholds, lockout duration and
-  key? `01-architecture.md` §5 and `decisions/0003` require "aggressive" and
-  "stricter than an ordinary application login" without a number, and nothing
-  decides whether the limiter is keyed by IP, by submitted address, or by both.
-  Keying by address is itself an existence oracle if the limits differ per key.
-- **OQ-AUTH-03** — Is two-factor authentication in v1, and is it optional per
-  administrator or enforceable instance-wide? `01-architecture.md` §5 and
-  `02-domain.md` §13 provide `two_factor_secrets`, but the v1 scope list in
-  `00-overview.md` §5 does not include 2FA. Its answer adds a state between step
-  2 and `authenticated`, and two contracts.
 - **OQ-AUTH-04** — Which Mailward table holds the remember-me token?
   `01-architecture.md` §5 requires it in Mailward's database keyed by email
   address; `02-domain.md` §13 enumerates no such entity. A column on
   `panel_profiles` and a dedicated table are both consistent with what is
   written.
-- **OQ-AUTH-05** — Do `domain_admins.active = 0` or a past `domain_admins.expired`
-  revoke a grant? It changes whether such an administrator is denied, or signs in
-  with a narrowed scope. `docs/reference/open-questions-research.md` (OQ-02,
-  Still unknown) records that nothing sourced says iRedMail reads either column.
 - **OQ-AUTH-07** — Is this feature implementable at all before OQ-04 is answered
   against a real install? `docs/reference/open-questions-research.md` states that
   OQ-04 blocks the custom user provider and therefore login itself. The

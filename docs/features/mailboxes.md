@@ -208,6 +208,87 @@ feature narrows nothing in it, and adds no role.
   the step that empties the panel of administrators
   (`docs/reference/decisions-needed.md` Q6, answered 2026-08-15).
 
+- **BR-28** — **`domain.maxquota` caps an individual mailbox's `quota`. It does
+  not cap the sum.** On every create, and on every update that submits a quota,
+  the requested value is compared against the `maxquota` of the mailbox's own
+  domain, read on the `vmail` connection inside the same transaction as the
+  write — the same row BR-26 already reads for locality — and a value above the
+  cap is refused as a validation error on the quota field. It is one comparison
+  against one row. **No `SUM` over the domain's mailboxes is computed and no
+  domain-wide allocation total is enforced**, so this rule introduces none of the
+  racy aggregate that BR-29 accepts for the count limits. `0` in `maxquota` means
+  unlimited, consistent with the other per-domain limits (`02-domain.md` §2,
+  `docs/features/domains.md` BR-03); and where the cap is non-zero, a submitted
+  `quota` of `0` — an unlimited mailbox — is **refused**, because unlimited
+  exceeds every cap. Lowering a domain's `maxquota` below quotas already granted
+  is not rejected and rewrites nothing (`docs/features/domains.md`
+  `PUT /domains/{domain}`): existing mailboxes keep their values, and the next
+  write to any of them must satisfy the new cap. The rule ends the treatment
+  `maxquota` shared with `maillists` (`docs/features/domains.md` BR-05):
+  `maillists` is stored and unenforced, `maxquota` is now enforced.
+  **It may not be implemented before the quota unit is settled.**
+  `02-domain.md` §2 documents `domain.maxquota` in bytes while the unit of
+  `mailbox.quota` is unresolved (OQ-M1, contradiction C1, probe E4 in
+  `docs/reference/decisions-needed.md`), and a cap comparing two columns held in
+  different units is worse than no cap — it would be wrong by a factor of
+  1,048,576 in one direction or the other, and both readings render a plausible
+  number. Until E4 is run this rule is specified and unimplemented, and no
+  comparison against `maxquota` ships (`docs/reference/decisions-needed.md` Q15,
+  answered 2026-08-15, option B).
+- **BR-29** — **The `domain.mailboxes` limit of BR-05 is counted inside the
+  create transaction, without locking, and the count-then-insert race is
+  accepted.** The count runs on the `vmail` connection inside the same
+  transaction as the insert — never before the transaction opens — and the
+  `domain` row is **not** locked for update, so creates within one domain are not
+  serialised. The consequence is recorded here as a property of the product
+  rather than left to be reported later as a defect: **a per-domain limit is a
+  guardrail, not a guarantee.** Two creates racing in the same domain can both
+  pass the check and leave the domain one account over its limit; the next create
+  counts the true total, finds it at or above the limit, and is refused. The
+  excess is therefore bounded by one per race and never compounds. This is
+  deliberate: nothing in the product bills on these limits, `0` already means
+  unlimited (BR-05), and `docs/policies/authorization.md` §5 requires a
+  same-transaction check only for the last-global-admin case — a lockout rule,
+  where being wrong by one is being wrong absolutely, which a count limit is not.
+  Two visible consequences, both already true of the specification and neither a
+  defect: a dashboard or listing may show a count **greater** than its limit, and
+  "at limit" is therefore defined as `count >= limit` rather than `count = limit`
+  (`docs/features/domains.md` BR-04, `docs/features/dashboard.md` BR-08). The
+  same treatment applies to `domain.aliases` (`docs/features/aliases.md` BR-06)
+  for the same reason (`docs/reference/decisions-needed.md` Q16, answered
+  2026-08-15, option A).
+- **BR-30** — **The form exposes a curated subset of the `enable*` toggles and
+  writes no column outside it.** The subset is six toggles, each of which moves
+  its whole family of plain and secured/TLS variants together:
+  1. **SMTP** — `enablesmtp`, `enablesmtpsecured`;
+  2. **POP3** — `enablepop3`, `enablepop3secured`, `enablepop3tls`;
+  3. **IMAP** — `enableimap`, `enableimapsecured`, `enableimaptls`;
+  4. **Delivery (LDA/LMTP)** — `enabledeliver`, `enablelda`, `enablelmtp`;
+  5. **Sieve / ManageSieve** — `enablesieve`, `enablesievesecured`,
+     `enablesievetls`, `enablemanagesieve`, `enablemanagesievesecured`;
+  6. **SOGo** — `enablesogo`, plus the three character columns below.
+  Every other `enable*` column — `enableinternal`, `enabledoveadm`,
+  `enabledsync`, and the Dovecot internals `enablelib-storage`,
+  `enablequota-status` and `enableindexer-worker` — **keeps whatever iRedMail
+  set**, is never rendered, never validated and **never named in an INSERT or
+  UPDATE column list**, so those columns are byte-identical after any Mailward
+  write. On create they are left to their schema defaults, which is what
+  iRedMail's own tooling produces. The three Dovecot internals are **deliberately
+  unreachable**, not merely hidden: they are service plumbing no administrator
+  has a reason to switch off, switching one off breaks the account in a way the
+  panel cannot explain, and they are among the columns whose hyphenated
+  identifiers quote differently per driver (matrix D19, BR-22).
+  **`enablesogo` gates the three SOGo character columns**: writing
+  `enablesogo = 1` writes `'y'` to `enablesogowebmail`, `enablesogocalendar` and
+  `enablesogoactivesync`; writing `enablesogo = 0` writes `'n'` to all three.
+  They move only with it and are not independently exposed in v1. Those three are
+  character columns and never receive a boolean cast, which would write `1` and
+  break SOGo (BR-07, matrix D5); the integer toggles are written `1`/`0` (BR-07).
+  The reason for a subset rather than all ~30 is legibility: a form of thirty
+  checkboxes is a form nobody reads, and the scope line asks for "enabled
+  services", not for every column whose name begins with `enable`
+  (`docs/reference/decisions-needed.md` Q20, answered 2026-08-15, option A).
+
 ## Data
 
 **Written** — `vmail.mailbox`, primary key `username` (the full address):
@@ -217,7 +298,7 @@ feature narrows nothing in it, and adds no role.
 | Identity | `username`, `password`, `name`, `first_name`, `last_name`, `language` |
 | Profile | `mobile`, `telephone`, `recovery_email`, `birthday`, `department`, `rank`, `employeeid` |
 | Storage | `mailboxformat`, `mailboxfolder`, `storagebasedirectory`, `storagenode`, `maildir`, `quota`, `domain`, `transport` |
-| Services | ~30 integer `enable*` flags, plus `enablesogowebmail` / `enablesogocalendar` / `enablesogoactivesync` as `'y'`/`'n'` characters |
+| Services | the curated `enable*` subset of BR-30 only, as `1`/`0`, plus `enablesogowebmail` / `enablesogocalendar` / `enablesogoactivesync` as `'y'`/`'n'` characters gated by `enablesogo`. The remaining `enable*` columns are read-only context and appear in no INSERT or UPDATE (BR-30) |
 | Access | `allow_nets` (NULL when unrestricted) |
 | Dates | `passwordlastchange`, `created`, `modified`, `expired` |
 | State | `active` |
@@ -240,8 +321,9 @@ to `docs/features/domain-admins.md`.
 
 **Read-only** — `vmail.used_quota` (`username`, `bytes`, `messages`;
 `domain` never read), `vmail.last_login` (`username`, `imap`, `pop3`, `lda`),
-`vmail.domain` (`domain` for the locality check of BR-26, plus `mailboxes`,
-`maxquota`, `active`, `expired`).
+`vmail.domain` (`domain` for the locality check of BR-26, `mailboxes` for the
+limit of BR-05 and BR-29, `maxquota` for the per-mailbox cap of BR-28, plus
+`active`, `expired`).
 
 **Mailward's own database** — `panel_profiles`, `two_factor_secrets` and any
 other table keyed by the address are cleaned on delete; `audit_log` is written
@@ -272,8 +354,8 @@ only; every request is authorized again on the server
 
 Error cases: 403 for a resource outside the actor's scope (logged per BR-20);
 422 with field errors for validation, including the uniqueness check of BR-03,
-the locality check of BR-26 and the limit of BR-05; 409-equivalent (validation
-error) when BR-A01 would be violated.
+the locality check of BR-26, the limit of BR-05 and the quota cap of BR-28;
+409-equivalent (validation error) when BR-A01 would be violated.
 
 ## States
 
@@ -411,6 +493,49 @@ error) when BR-A01 would be violated.
   the request is refused by BR-A01, the `mailbox` row is unchanged, and its
   `domain_admins` rows — including the `'ALL'` row — are all still present: the
   cascade of BR-27 never runs on a refused delete (BR-19, BR-27).
+- **AC-32** — Given a domain whose `maxquota` is `1000`, when a mailbox is
+  created with `quota = 1000`, then it succeeds; when one is created with
+  `quota = 1001`, then it fails validation on the quota field and neither a
+  `mailbox` row nor a `forwardings` row is written; and when an existing mailbox
+  in that domain is updated to `quota = 1001`, then it fails the same way and the
+  stored `quota` is unchanged. *(BR-28)*
+- **AC-33** — Given a domain whose `maxquota` is `1000`, when a mailbox is
+  created with `quota = 0`, then it fails validation — unlimited exceeds the
+  cap; and given a domain whose `maxquota` is `0`, when a mailbox is created with
+  any `quota`, including `0`, then it succeeds and no comparison against
+  `maxquota` appears in the executed statements. *(BR-28)*
+- **AC-34** — Given a domain whose `maxquota` is `1000` and two mailboxes already
+  holding `quota = 1000`, when the domain's `maxquota` is lowered to `500`, then
+  the update succeeds, both mailboxes still hold `1000`, no UPDATE was issued
+  against `mailbox`, and the next edit of either mailbox that submits
+  `quota = 1000` fails validation. *(BR-28)*
+- **AC-35** — Given a domain with `mailboxes = 5` and four existing accounts,
+  when two creates run concurrently, then both may succeed and the domain may
+  hold six accounts; when a further create is attempted afterwards, then it is
+  refused by BR-05; and when the create statements are inspected, then the count
+  was issued inside the same transaction as the insert and no `SELECT … FOR
+  UPDATE` or other lock was taken on the `domain` row. *(BR-29, BR-05)*
+- **AC-36** — Given that same domain holding six accounts against a limit of
+  five, when a listing or the dashboard renders it, then it reports `count = 6`,
+  `limit = 5` and `at_limit = true`, and neither screen raises an error on a
+  count that exceeds its limit. *(BR-29, `docs/features/domains.md` BR-04)*
+- **AC-37** — Given a mailbox whose `enableinternal`, `enabledoveadm`,
+  `enabledsync`, `enablelib-storage`, `enablequota-status` and
+  `enableindexer-worker` hold arbitrary pre-existing values, when it is updated
+  through every field the form offers, then all six columns are byte-for-byte
+  unchanged, none appears in any executed INSERT or UPDATE column list, and none
+  appears in any Inertia prop or form control. *(BR-30)*
+- **AC-38** — Given the mailbox form, when it renders, then it offers exactly six
+  service toggles — SMTP, POP3, IMAP, delivery, Sieve/ManageSieve and SOGo — and
+  when SMTP is turned off, then `enablesmtp` and `enablesmtpsecured` are both
+  `0`; when POP3 is turned off, then `enablepop3`, `enablepop3secured` and
+  `enablepop3tls` are all `0`; and the equivalent holds for IMAP, delivery and
+  Sieve/ManageSieve across every column named in BR-30. *(BR-30)*
+- **AC-39** — Given SOGo is turned off, when the row is written, then
+  `enablesogo` is the integer `0` and `enablesogowebmail`, `enablesogocalendar`
+  and `enablesogoactivesync` all hold `'n'`; when it is turned on, then
+  `enablesogo` is `1` and all three hold `'y'`; and the form offers no
+  independent control for any of the three. *(BR-30, BR-07, AC-09)*
 
 ## Out of Scope
 
@@ -461,15 +586,3 @@ error) when BR-A01 would be violated.
 - **OQ-M5** — Must `passwordlastchange` be updated on every password write, and
   does any iRedMail component enforce expiry from it? Recorded as unsourced in
   `docs/reference/open-questions-research.md` (OQ-04).
-- **OQ-M6** — Does `domain.maxquota` constrain an individual mailbox's `quota`,
-  the sum of the domain's mailbox quotas, or neither? `02-domain.md` §2 declares
-  only `aliases`, `mailboxes` and `maillists` as limits Mailward enforces, and
-  describes `maxquota` without assigning it a rule.
-- **OQ-M7** — How is the `domain.mailboxes` limit of BR-05 enforced under
-  concurrent creates? `docs/policies/authorization.md` §5 requires a
-  same-transaction check for the last-global-admin case only; nothing decides
-  whether the count-then-insert race on the limit must be closed the same way.
-- **OQ-M8** — Which of the ~30 `enable*` toggles does the v1 form expose, and do
-  any of them move together — in particular, whether `enablesogo` gates the
-  three SOGo character columns? The scope line says only "enabled services", and
-  `02-domain.md` §4 enumerates the columns without grouping them.

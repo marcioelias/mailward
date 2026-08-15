@@ -112,7 +112,7 @@ This feature is where all four are enforced.
   MySQL and `INT2` on PostgreSQL; comparisons and writes bind `1`/`0`, never
   `true`/`false` (`docs/02-domain.md` §1.3;
   `docs/reference/schema-type-matrix.md` D4). New rows are written `active = 1`.
-  Whether `active = 0` revokes a grant is OQ-DA-04.
+  An inactive or expired grant confers nothing (BR-10).
 - **BR-11** — Setting or clearing `mailbox.isglobaladmin` is not a domain-owned
   operation. `docs/policies/authorization.md` §2 — the only authorization
   concept in the product — provides no domain under which a domain admin could
@@ -178,6 +178,39 @@ This feature is where all four are enforced.
   account promoted itself. The entry is what makes the escape hatch visible
   afterwards, and it is distinguishable from a web-originated promotion by the
   actor alone (`docs/reference/decisions-needed.md` Q10, answered 2026-08-15).
+- **BR-19** — **When the two global-admin representations have drifted, Mailward
+  reports it and changes nothing.** Drift is `mailbox.isglobaladmin = 1` with no
+  `(username, 'ALL')` row in `domain_admins`, or that row present with the flag
+  cleared; the two are written independently by iRedMail's own tooling and by
+  anything else touching `vmail`, so they can disagree without Mailward having
+  done anything. Three parts:
+  1. **The authorization decision is unaffected and is not re-opened.** BR-03
+     already settles it: `mailbox.isglobaladmin` is the authoritative input,
+     including for the BR-A01 count, and the `'ALL'` row is excluded from every
+     join (BR-05). A drifted pair therefore cannot change who may do what.
+  2. **The drift is reported in the health check** — the same operator-facing
+     scan that carries the unverifiable-scheme finding
+     (`docs/features/authentication.md` BR-20), listing each address and which of
+     the two representations is missing. It is a read: the check issues no write
+     on any connection.
+  3. **Mailward never repairs it, and never writes a `vmail` row during a read.**
+     Silently inserting or deleting a `domain_admins` row to make the two agree
+     would be a write nobody requested, performed during a `GET`, outside any
+     audited action — contradicting `docs/policies/authorization.md` §7, which
+     requires every write to be a recorded act with an actor behind it. The other
+     panel administering this server would also see an administrator appear or
+     vanish with no entry in either product's log. Reporting keeps the decision
+     with the administrator, who is the only party that knows which of the two
+     was intended.
+  A repair remains available through the ordinary endpoints —
+  `POST /admins/{address}/global` writes both representations and is idempotent
+  (BR-04, AC-05), `DELETE /admins/{address}/global` removes both — so the finding
+  is actionable in one click and the action is audited like any other. **Moot if
+  E1 refutes the sentinel row** (`docs/reference/decisions-needed.md` E1,
+  OQ-DA-09): if the installer writes no `'ALL'` row there is only one
+  representation and nothing can drift, and this rule and the check it feeds are
+  both dropped rather than reworded
+  (`docs/reference/decisions-needed.md` Q24, answered 2026-08-15, option A).
 
 ## Data
 
@@ -199,7 +232,7 @@ This feature is where all four are enforced.
 | `username` | Admin address. `CHARACTER SET ascii` on MySQL — BR-06, BR-07 |
 | `domain` | Real domain name, or the sentinel `'ALL'` for a global admin — BR-04, BR-05 |
 | `created`, `modified`, `expired` | Written explicitly, per driver — BR-09 |
-| `active` | Written `1`; semantics undecided — OQ-DA-04 |
+| `active` | Written `1`. A row with `0`, or a past `expired`, confers nothing — BR-10 |
 
 **`vmail.domain`** — read only, to list assignable domains and to resolve the
 scope. Joined only with the `'ALL'` exclusion (BR-05) and the collation
@@ -303,8 +336,10 @@ in "Not an administrator" (BR-16).
 row without the flag. The two representations are written independently by
 iRedMail's tooling and can drift
 (`docs/reference/open-questions-research.md`, OQ-02, Hypothesis 3). For the
-authorization decision BR-03 settles it: the flag wins. What Mailward should do
-about the drift it finds — repair it, report it, or leave it — is OQ-DA-08.
+authorization decision BR-03 settles it: the flag wins. What Mailward does about
+the drift it finds is BR-19: it reports it in the health check and changes
+nothing — the state is observable, never silently repaired, and it is not a
+transition this feature drives.
 
 Transitions to and from these states are the endpoints in Contracts. Login
 access across all of them follows `docs/policies/authorization.md` §6.
@@ -414,6 +449,20 @@ PostgreSQL (`docs/01-architecture.md` §8).
   exists for it, its actor is the sentinel rather than `user@example.com` or any
   other address, and its IP field holds the invoking OS user and hostname
   (BR-18, `docs/features/audit-log.md` BR-20).
+- **AC-27** — given `admin@example.com` with `isglobaladmin = 1` and no
+  `(admin@example.com, 'ALL')` row, and given `other@example.com` with that row
+  present and `isglobaladmin = 0`, when the health check runs, then it reports
+  both addresses and names which representation is missing for each; and when
+  every statement the check issued is inspected, then none is an INSERT, UPDATE
+  or DELETE on any connection (BR-19).
+- **AC-28** — given that same fixture, when `GET /admins`, `GET /admins/{address}`
+  and any other read path in this feature are exercised, then no `domain_admins`
+  row is inserted or removed and no `mailbox` flag is changed — both accounts are
+  in exactly the drifted state afterwards; `admin@example.com` is treated as a
+  global admin and `other@example.com` is not, per BR-03; and when
+  `POST /admins/other@example.com/global` is then issued by a permitted actor,
+  the drift is resolved by that explicit, audited write and one `audit_log` entry
+  exists for it (BR-19, BR-03, BR-04).
 
 ## Out of Scope
 
@@ -442,24 +491,16 @@ PostgreSQL (`docs/01-architecture.md` §8).
 
 ## Open Questions
 
-- **OQ-DA-04** — Does `domain_admins.active = 0` revoke a grant? Nothing sourced
-  says any iRedMail component reads that column, or its `expired` date
-  (`docs/reference/open-questions-research.md`, "Still unknown", OQ-02). Until
-  answered, Mailward writes `active = 1` and does not offer a disable action.
 - **OQ-DA-05** — Is the sentinel literally uppercase `'ALL'`, three bytes, in
   every supported iRedMail version, and is `'ALL'` guaranteed never to be a real
   domain? On MySQL the column's collation would make `'all'` and `'ALL'` compare
   equal; on PostgreSQL it would not
   (`docs/reference/open-questions-research.md`, OQ-02, Hypothesis 2 and the
   verification queries). BR-05's exclusion is only as reliable as this answer.
-- **OQ-DA-08** — What does Mailward do when it finds the two representations
-  drifted — `isglobaladmin = 1` with no `'ALL'` row, or an `'ALL'` row with the
-  flag cleared? Repair silently, report it, or ignore it. The drift is
-  identified as possible in `docs/reference/open-questions-research.md`, OQ-02,
-  Hypothesis 3, and no document decides the response.
 - **OQ-DA-09** — Confirmation of BR-04 itself. The two-write representation is
   sourced from iRedMail's documentation but **not yet verified against a live
   install**; the procedure in `docs/reference/open-questions-research.md`,
   OQ-02, "How to confirm", must be run. If it is refuted — the installer writes
-  no sentinel row — BR-04 and BR-05 both change, and the `mailward:promote`
-  contract with them.
+  no sentinel row — BR-04 and BR-05 both change, the `mailward:promote` contract
+  with them, and BR-19 is dropped rather than reworded: with one representation
+  there is nothing that can drift.

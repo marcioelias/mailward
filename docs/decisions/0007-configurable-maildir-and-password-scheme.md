@@ -54,6 +54,40 @@ The enumerated option sets are not written here. They are established in
 install before either feature is implemented; this ADR records only that they
 are configuration.
 
+## Correction — 2026-08-15
+
+The password bullet above says a scheme Mailward cannot verify is "a hard
+failure at login, never a silent denial". That sentence is **too broad as
+written**, and is left in place because these records are append-only. The
+decision it expresses is unchanged; what it was missing is an audience.
+
+What is wrong: read literally, "a hard failure at login" means the failure is
+visible to whoever is at the login form — and whoever is at the login form is
+anonymous. Telling them that this address exists but uses a scheme we cannot
+verify confirms the account exists, which is exactly the oracle
+`01-architecture.md` §5 exists to close, and `docs/features/authentication.md`
+BR-07 requires every denial to be indistinguishable from every other: same
+status, same body, same redirect, same observable timing. The two documents were
+in direct contradiction, recorded as **C2** in
+`docs/reference/decisions-needed.md`.
+
+The correction: **"hard and visible" is scoped to operator surfaces.** The
+caller receives the same generic denial as any other failure. The failure is
+made visible instead in the application log — where it is distinguishable from a
+credential mismatch — in a health check that scans the `{SCHEME}` prefixes
+present in `mailbox.password`, and in a banner shown to signed-in
+administrators. What this ADR was protecting against is unaffected: the
+prohibition is on the failure being *silent*, not on the caller being told, and
+an account in this state is a dead account whose owner cannot collect mail
+either, so somebody must be told. Nobody who can act on it is anonymous.
+
+Recorded as `docs/features/authentication.md` BR-20, which also narrows BR-12
+there. Whether the health check is a v1 feature with a specification of its own
+is `docs/00-overview.md` OQ-06.
+
+Sourced in `docs/reference/decisions-needed.md` Q12, answered 2026-08-15,
+option A.
+
 ## Consequences
 
 **Gained**
