@@ -42,11 +42,11 @@
         <env name="DB_PASSWORD" value=""/>
         <env name="DB_URL" value=""/>
 
-        <env name="VMAIL_DB_DRIVER" value="mysql"/>
+        <env name="VMAIL_DB_DRIVER" value="pgsql"/>
         <env name="VMAIL_DB_HOST" value="127.0.0.1"/>
-        <env name="VMAIL_DB_PORT" value="3306"/>
+        <env name="VMAIL_DB_PORT" value="5432"/>
         <env name="VMAIL_DB_DATABASE" value="vmail_test"/>
-        <env name="VMAIL_DB_USERNAME" value="root"/>
+        <env name="VMAIL_DB_USERNAME" value="postgres"/>
         <env name="VMAIL_DB_PASSWORD" value=""/>
         <env name="VMAIL_DB_URL" value=""/>
         <!-- Tests never write to the application log; it is a shared

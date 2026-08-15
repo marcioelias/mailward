@@ -19,7 +19,7 @@ $driverDefaults = static fn (string $driver): array => $driver === 'pgsql'
 $mailwardDriver = env('DB_DRIVER', 'pgsql');
 $mailwardDefaults = $driverDefaults($mailwardDriver);
 
-$vmailDriver = env('VMAIL_DB_DRIVER', 'mysql');
+$vmailDriver = env('VMAIL_DB_DRIVER', 'pgsql');
 $vmailDefaults = $driverDefaults($vmailDriver);
 
 return [

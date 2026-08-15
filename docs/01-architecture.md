@@ -109,8 +109,22 @@ SQL only — MySQL/MariaDB and PostgreSQL. The OpenLDAP backend is out of scope
 (`docs/decisions/0001-sql-backend-only.md`).
 
 The MySQL and PostgreSQL schema files shipped by iRedMail are **not identical**
-in column types and defaults. A type matrix must be produced from both files
-before models are written, and the test suite runs against both drivers.
+in column types and defaults. The matrix is in
+`docs/reference/schema-type-matrix.md`, and the test suite runs against both
+drivers — `composer test`.
+
+**PostgreSQL is the default and the first deployment target.** Both backends
+are equally supported, and the choice of default is not neutral: of the
+divergences in the matrix, nearly all of them pass silently on MySQL and fail
+loudly on PostgreSQL. MySQL's `utf8mb4_general_ci` makes address lookups
+case-insensitive by accident, it accepts a PHP boolean where PostgreSQL
+rejects it against `INT2`, and it fills `used_quota.domain` from a trigger that
+exists nowhere else.
+
+Defaulting to PostgreSQL therefore means a driver mistake surfaces during
+development instead of hiding until someone installs on the strict backend.
+The MySQL cell of the matrix is still run on every change; it is second in the
+sequence, not absent.
 
 ---
 

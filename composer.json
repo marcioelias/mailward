@@ -50,8 +50,8 @@
             "@php artisan dev"
         ],
         "test": [
-            "@test:mysql",
-            "@test:pgsql"
+            "@test:pgsql",
+            "@test:mysql"
         ],
         "test:mysql": [
             "@php artisan config:clear --ansi @no_additional_args",
