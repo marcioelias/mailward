@@ -6,4 +6,8 @@ parameters:
     paths:
         - app
         - database
-        - tests
+
+# Tests are deliberately out of scope, as in standards/laravel/tooling.md.
+# Pest binds its closures to the TestCase at run time, which PHPStan cannot
+# see, so every $this->get() in a feature test reads as a call to an undefined
+# method. Type safety in tests comes from the assertions themselves.
