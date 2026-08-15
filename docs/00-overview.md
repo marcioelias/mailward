@@ -116,14 +116,40 @@ The range is set once the first install is validated. See Open Questions.
 
 ## 9. Open Questions
 
+Research status is tracked in `docs/reference/open-questions-research.md` and
+`docs/reference/current-iredmail-behaviour.md`. Nothing below is confirmed
+against a running install.
+
 - **OQ-01** — Which iRedMail versions form the initial supported range?
+  *Proposal on the table:* 1.7.3 (April 2025) and later, because 1.7.3 is the
+  last release to add columns to `mailbox` and `deleted_mailboxes`, and §2 of
+  the architecture forbids Mailward from adding them itself. Current stable is
+  1.8.4. Awaiting a decision.
 - **OQ-02** — How is a global admin represented in `domain_admins`? Is a row
   written with a sentinel domain, or does `isglobaladmin` alone suffice?
-- **OQ-03** — What algorithm generates `mailbox.maildir`? Required to create
-  accounts that Dovecot can actually deliver to.
+  *Sourced answer:* both are written, the sentinel being the literal `ALL`.
+  Every join from `domain_admins` to `domain` must exclude it.
+- **OQ-03** — What algorithm generates `mailbox.maildir`?
+  *Largely dissolved.* The path is configuration, not a constant
+  (`decisions/0007`), and the branch that would have hurt is closed: Dovecot
+  creates the mail directory itself, because iRedMail always sets the location
+  explicitly. Creating a mailbox is plain SQL and needs no privileged helper,
+  which confirms `01-architecture.md` §6 rather than contradicting it.
 - **OQ-04** — Which password schemes must be supported for verification, and
   how is the server's configured scheme detected?
+  *Partly answered, and messier than it looked.* A current iRedMail ships two
+  different Dovecot configurations — 2.3 and 2.4 — and they do not agree on
+  what an unprefixed hash means, nor on which legacy schemes still work. The
+  real test axis is the Dovecot generation, not the iRedMail version.
 
-OQ-02, OQ-03 and OQ-04 block the first feature and must be answered against a
-real install before implementation starts.
+### Newly opened by that research
+
+- **OQ-05** — What unit is `mailbox.quota`? `02-domain.md` §4 says bytes;
+  iRedMail's own Dovecot query multiplies it by 1048576. Both readings produce
+  a plausible number on screen, and one of them is wrong by a factor of a
+  million.
+
+The nine feature documents in `docs/features/` raise roughly sixty further
+questions. They are deduplicated and ranked in
+`docs/reference/decisions-needed.md`, which is the working list.
 </content>

@@ -33,6 +33,32 @@ admin assignments, and the login form.
 
 Normalisation applies to lookups as well as writes.
 
+## Correction — 2026-08-15
+
+The Dovecot bullet in Context above is **factually wrong**, and is left in
+place because these records are append-only. The decision it supports is
+unchanged, and is in fact better founded than the original reasoning claimed.
+
+What is wrong: `auth_username_format` is indeed never set by iRedMail, but the
+setting is not "unset means pass through". It has a lowercasing **default** in
+both configuration generations — `%Lu` in Dovecot 2.3, `%{user | lower}` in
+2.4. On the 2.4 path iRedMail lowercases a second time inside the SQL query
+itself. The username therefore never reaches the query as the client typed it.
+
+Why this strengthens the decision rather than weakening it: because the lookup
+key is *always* lower case, a mixed-case row on PostgreSQL can never be matched
+at all. The user cannot work around it by typing the exact casing, and the
+userdb lookup fails alongside the passdb one, so the account has no home and
+receives no mail.
+
+A mixed-case row on PostgreSQL is therefore not a usability wart. It is a dead
+account. The health check described below as "worth building" is accordingly
+more urgent than this record originally implied.
+
+Sourced in `docs/reference/current-iredmail-behaviour.md` §Q3, against
+iRedMail 1.8.4 and Dovecot's own documentation. Not yet confirmed against a
+running install.
+
 ## Consequences
 
 - No mixed-case address is ever written to `vmail` by Mailward
