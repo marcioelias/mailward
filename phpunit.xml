@@ -49,6 +49,9 @@
         <env name="VMAIL_DB_USERNAME" value="root"/>
         <env name="VMAIL_DB_PASSWORD" value=""/>
         <env name="VMAIL_DB_URL" value=""/>
+        <!-- Tests never write to the application log; it is a shared
+             file owned by the web user. Assert on logging with Log::spy(). -->
+        <env name="LOG_CHANNEL" value="null"/>
         <env name="MAIL_MAILER" value="array"/>
         <env name="QUEUE_CONNECTION" value="sync"/>
         <env name="SESSION_DRIVER" value="array"/>

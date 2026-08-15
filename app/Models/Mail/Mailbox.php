@@ -9,6 +9,8 @@ use App\Casts\NeverExpiresDate;
 use App\Casts\NeverSetDate;
 use App\Casts\YesNoBoolean;
 use Carbon\CarbonImmutable;
+use Illuminate\Auth\Authenticatable;
+use Illuminate\Contracts\Auth\Authenticatable as AuthenticatableContract;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -91,8 +93,10 @@ use Illuminate\Support\Carbon;
  * @property-read ?LastLogin $lastLogin
  * @property-read Collection<int, Forwarding> $forwardings
  */
-final class Mailbox extends MailModel
+final class Mailbox extends MailModel implements AuthenticatableContract
 {
+    use Authenticatable;
+
     protected $table = 'mailbox';
 
     protected $primaryKey = 'username';
@@ -100,6 +104,25 @@ final class Mailbox extends MailModel
     protected $keyType = 'string';
 
     public $incrementing = false;
+
+    /**
+     * There is no `remember_token` column, and there never will be: Mailward
+     * issues no DDL against the iRedMail schema
+     * (docs/decisions/0002-separate-application-database.md). Returning an
+     * empty name makes the framework's remember mechanism inert instead of
+     * having it write to a column that does not exist.
+     *
+     * Persistent sessions are meant to live in Mailward's own database keyed
+     * by address (docs/01-architecture.md §5). That mechanism is not designed
+     * yet, so the login form does not offer the option.
+     *
+     * Overridden as a method rather than by redeclaring the trait's property,
+     * which PHP rejects as an incompatible composition.
+     */
+    public function getRememberTokenName(): string
+    {
+        return '';
+    }
 
     /**
      * `settings` belongs to iRedAdmin-Pro and Mailward never writes it

@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\Mail\Mailbox;
 use App\Models\User;
 
 return [
@@ -40,7 +41,7 @@ return [
     'guards' => [
         'web' => [
             'driver' => 'session',
-            'provider' => 'users',
+            'provider' => 'administrators',
         ],
     ],
 
@@ -62,15 +63,20 @@ return [
     */
 
     'providers' => [
-        'users' => [
+        /*
+         * Administrators are ordinary mail accounts flagged in iRedMail, not
+         * rows in a users table (docs/decisions/0003-reuse-iredmail-admin-model.md).
+         * The standard Eloquent provider is enough: Mailbox is an Eloquent
+         * model whose key is the address, on the vmail connection.
+         *
+         * Credentials are never validated through this provider — that is
+         * Fortify's authenticateUsing callback, which also applies the login
+         * gate (docs/policies/authorization.md §6).
+         */
+        'administrators' => [
             'driver' => 'eloquent',
-            'model' => env('AUTH_MODEL', User::class),
+            'model' => Mailbox::class,
         ],
-
-        // 'users' => [
-        //     'driver' => 'database',
-        //     'table' => 'users',
-        // ],
     ],
 
     /*
@@ -92,14 +98,14 @@ return [
     |
     */
 
-    'passwords' => [
-        'users' => [
-            'provider' => 'users',
-            'table' => env('AUTH_PASSWORD_RESET_TOKEN_TABLE', 'password_reset_tokens'),
-            'expire' => 60,
-            'throttle' => 60,
-        ],
-    ],
+    /*
+     * No password broker. Resetting a mail password by emailing a token to an
+     * address on the same server that is locked out is not a mechanism that
+     * works, and password reset is absent from the v1 scope
+     * (docs/00-overview.md §5). The documented recovery path is the console
+     * command in docs/policies/authorization.md §5, BR-A04.
+     */
+    'passwords' => [],
 
     /*
     |--------------------------------------------------------------------------
