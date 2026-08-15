@@ -6,8 +6,14 @@ use App\Http\Controllers\StatusController;
 use Illuminate\Support\Facades\Route;
 
 /*
- * Nothing here is authenticated yet. The login gate is specified in
- * docs/features/authentication.md and is not implemented: it depends on
- * password scheme questions that are still open (docs/reference/decisions-needed.md).
+ * Everything is behind authentication. An unauthenticated request to a panel
+ * route is redirected to the login form and the target is never rendered
+ * (docs/features/authentication.md BR-18).
+ *
+ * Deny by default is the posture, not a convention: a route added without a
+ * guard must fail closed. Fortify's own /login and /logout are registered by
+ * the package with the guest and auth middleware it needs.
  */
-Route::get('/', StatusController::class)->name('status');
+Route::middleware('auth')->group(function (): void {
+    Route::get('/', StatusController::class)->name('status');
+});
