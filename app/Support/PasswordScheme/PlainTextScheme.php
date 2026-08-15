@@ -36,4 +36,9 @@ final class PlainTextScheme implements Scheme
             'Mailward refuses to write a cleartext password. Configure a hashed scheme in config/mailward.php.'
         );
     }
+
+    public function isSafeToGenerate(): bool
+    {
+        return false;
+    }
 }

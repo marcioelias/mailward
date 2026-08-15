@@ -61,4 +61,9 @@ final class CryptScheme implements Scheme
     {
         return password_hash($plain, PASSWORD_BCRYPT);
     }
+
+    public function isSafeToGenerate(): bool
+    {
+        return true;
+    }
 }

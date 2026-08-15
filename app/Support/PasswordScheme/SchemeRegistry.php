@@ -81,6 +81,14 @@ final class SchemeRegistry
         $label = strtoupper($this->generatingScheme);
         $scheme = $this->schemes[$label] ?? throw UnsupportedScheme::named($label);
 
+        if (! $scheme->isSafeToGenerate()) {
+            throw new CannotGeneratePassword(
+                "Mailward verifies {{$label}} so legacy accounts can sign in, but will not write it: "
+                .'an unsalted or cleartext password is weaker than what the account already had. '
+                .'Set MAILWARD_PASSWORD_SCHEME to a salted scheme such as SSHA512 or BLF-CRYPT.'
+            );
+        }
+
         return '{'.$scheme->name().'}'.$scheme->hash($plain);
     }
 

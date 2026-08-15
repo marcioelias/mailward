@@ -16,7 +16,15 @@ return [
      * When the clean command is executed, all recording activities older than
      * the number of days specified here will be deleted.
      */
-    'clean_after_days' => 365,
+    /*
+     * Never. The audit log is append-only by specification
+     * (docs/features/audit-log.md BR-05, docs/02-domain.md §13), and the
+     * package's default would have quietly deleted a year-old record of who
+     * did what. Retention, if it is ever wanted, is a decision recorded in
+     * docs/ first — not a package default nobody chose.
+     */
+    'delete_records_older_than_days' => null,
+    'clean_after_days' => null,
 
     /*
      * If no log name is passed to the activity() helper

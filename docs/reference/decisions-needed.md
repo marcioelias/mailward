@@ -1,324 +1,624 @@
 # Decisions Needed
 
-A working list of everything the specification leaves undecided, deduplicated
-across the nine feature documents and `docs/00-overview.md` §9 — 78 raw open
-questions, 48 distinct decisions.
+Every question the specification still leaves open, deduplicated across the nine
+feature documents and `docs/00-overview.md` §9, grouped by decision rather than
+by feature — one entry per decision, listing every document it touches.
+Answering a question means **editing the owning feature document** and deleting
+its `OQ-` entry; this file is not authoritative and is not where answers live.
+Regenerated 2026-08-15, replacing the previous sheet in full.
 
-Derived from those documents; it does not replace them and is not authoritative.
-Answering a question here means **editing the owning feature document** and
-deleting its `OQ-` entry — not editing this file.
+`Q<n>` ids exist so an answer can be written as "Q7: option B". The `OQ-` ids
+are the real ones and are kept as cross-references. Recommendations are marked
+as such: they are never the answer, and where there is no basis to prefer an
+option this document says so.
 
-Ids used here (`D`, `E`, `C`, `P`, `A`) exist only for cross-reference inside
-this sheet. The `OQ-` ids are the real ones.
-
-Current as of commit `09cbc57`, which added
-`docs/reference/current-iredmail-behaviour.md` and reworked `00-overview.md` §9.
-That research closes one question outright (A8), reshapes two (E2, E3), turns
-OQ-01 into a decision with a proposal (D7), and opens two new contradictions
-(C7, C8). It is documentation-sourced and states plainly that **nothing in it is
-verified against a running install**, so every entry below that cites it still
-needs the probe.
+Implemented and working today: authentication, the domain scope, the domains
+feature, audit recording. Where the code has already settled a question it is
+marked **resolved by code**; where the code diverges from the specification it
+is marked **re-check**.
 
 ---
 
-## Decided
+## Already decided
 
-Answered by the project owner. Each entry records the answer, the date, and the
-documents it changed. The feature documents are authoritative; these summaries
-are not.
+Not reopened below.
 
-### D1 — What does deleting a parent do to its children? — **decided 2026-08-15**
-
-**Answer: explicit cascade.** Mailward deletes the dependants itself, in one
-transaction, because `vmail` has no foreign keys. Not "refuse", not "allow
-orphans". Per parent:
-
-- **Domain** → its mailboxes (each through the mailbox cascade below), its
-  standalone `alias` accounts, its `alias_domain` rows, the remaining
-  `forwardings` rows of the domain, its `domain_admins` rows (BR-A03), and the
-  Mailward-side rows keyed by addresses of that domain — except `audit_log`,
-  which is append-only and keeps its references (`02-domain.md` §13).
-- **Mailbox** → its self-referencing `forwardings` row, its `is_alias` and
-  `is_forwarding` rows, rows where the address appears as a `forwarding` target,
-  rows where it is an `is_list` member of some alias, plus a `deleted_mailboxes`
-  row so iRedMail's cron removes the files, plus the Mailward-side cleanup of
-  `02-domain.md` §13.
-- **Alias account** → its `is_list` rows, and nothing more: no deletion record
-  equivalent to `deleted_mailboxes` is kept, because an alias owns no storage.
-- **Demotion of an administrator** → **not** a deletion. The mailbox survives.
-  Demotion removes `domain_admins` rows and the flag its form covers, and does
-  **not** touch `panel_profiles` or `two_factor_secrets`: the account still
-  exists and may be promoted again.
-
-Two consequences written into the feature documents rather than hidden:
-
-- `deleted_mailboxes.maildir` is an absolute path while `mailbox.maildir` is the
-  relative tail below `storagebasedirectory` and `storagenode` (C3, E2,
-  `current-iredmail-behaviour.md` Q1). The cascade writes the concatenation of
-  the three columns. **This derivation is not confirmed against a running
-  install** — `mailboxes.md` OQ-M3 holds that one confirmation.
-- No transaction spans both databases (`01-architecture.md` §3), so the
-  Mailward-side deletes commit first, the `vmail` writes commit last, and the
-  whole operation must be idempotent on retry.
-
-**Changed** — `domains.md` (BR-16, BR-17; removed OQ-DOM-04, OQ-DOM-05,
-OQ-DOM-06, OQ-DOM-07), `mailboxes.md` (BR-23, BR-24, BR-25; removed OQ-M4;
-raised OQ-M9), `mailbox-aliases-forwardings.md` (BR-14; removed OQ-A7),
-`aliases.md` (BR-14; removed OQ-AL-06; raised OQ-AL-10), `alias-domains.md`
-(BR-10; removed OQ-AD-03), `domain-admins.md` (BR-14; removed OQ-DA-06).
-
-### D2 — What counts against `domain.aliases`? — **decided 2026-08-15**
-
-**Answer: standalone `alias` rows only.** Not `forwardings.is_alias` rows, not
-`alias_domain` rows. Those two populations are unbounded by this limit, and by
-any other per-domain limit in v1. Every document affected says so explicitly,
-including the ones that consequently have **no** limit check, so that absence
-reads as a decision rather than an omission.
-
-**Changed** — `domains.md` (BR-18; removed OQ-DOM-09), `aliases.md` (BR-15;
-removed OQ-AL-05), `mailbox-aliases-forwardings.md` (BR-15; removed OQ-A5),
-`alias-domains.md` (BR-11; removed OQ-AD-05), `dashboard.md` (BR-18; removed
-OQ-DASH-03).
-
-### D8 — May a domain admin write a domain record? — **decided 2026-08-15**
-
-**Answer: no. Every write to a `domain` row is global-admin only.** Creating,
-editing, disabling, re-enabling and deleting a domain all require
-`mailbox.isglobaladmin = 1`. A domain admin keeps the visibility the scope rule
-gives them (`docs/policies/authorization.md` §2) over the domains assigned to
-them, and no write authority over the domain record itself. Their authority
-covers the *contents* of those domains — mailboxes, aliases, forwardings —
-which the feature documents owning those tables govern.
-
-The reasoning: creating a domain adds a name to the mail server's namespace and
-deleting one destroys every account inside it through the cascade decided as
-**D1**. Neither operation is scoped to a domain the actor already administers,
-so the scope rule has no domain under which it could authorize them.
-
-This also disposes of the sub-question in D3: nobody but a global admin creates
-a domain, so whether a creator is automatically written into `domain_admins`
-for what they just created never arises — and no such row is written.
-
-Refusal keeps the shape the endpoints already had: `403` for a domain inside the
-actor's scope, `404` for one outside it so the scope does not leak existence,
-both logged as authorization failures (`docs/policies/authorization.md` §7).
-
-**Changed** — `domains.md` (BR-19, BR-20, AC-22 to AC-28; Actors, Contracts and
-Out of Scope; removed OQ-DOM-01 and OQ-DOM-02). Partially answers **D3**, which
-survives for alias domains and domain-admin assignment.
-
-### D9 — What does disabling a domain do to its accounts? — **decided 2026-08-15**
-
-**Answer: nothing. It writes `domain.active = 0` and nothing else.** Mailward
-does not touch the `active` flag of any mailbox, alias, forwarding or alias
-domain inside it, and re-enabling writes `domain.active = 1` and nothing else.
-
-The reason is reversibility. If disabling also deactivated every mailbox,
-re-enabling could not know which accounts were already inactive beforehand, and
-would switch back on accounts that were meant to stay off. Preserving that prior
-state would mean recording it in Mailward's own database — a mechanism nobody
-has asked for.
-
-**This decision depends on an unconfirmed fact** and says so in the feature
-document: Postfix and Dovecot must honour the domain-level flag. The
-confirmation is **E6**, now the whole of `domains.md` OQ-DOM-03. If the flag
-turns out not to be honoured, this decision has to be revisited, because a
-"disabled" domain that still receives mail is worse than no disable action at
-all.
-
-**Changed** — `domains.md` (BR-21, AC-29, AC-30; States, Contracts and Out of
-Scope; narrowed OQ-DOM-03 to the confirmation, keeping the id).
+- **D1** — deleting a parent cascades to its children explicitly: one `vmail`
+  transaction, Mailward-side rows committed first, `vmail` last, idempotent on
+  retry. *Unblocked* the delete path in `domains.md`, `mailboxes.md`,
+  `aliases.md`, `alias-domains.md`, `mailbox-aliases-forwardings.md` and
+  `domain-admins.md`. Implemented for domains in
+  `app/Actions/Domains/DeleteDomain.php`. Left two gaps — **Q6**.
+- **D2** — `domain.aliases` counts standalone `alias` rows only; per-account
+  aliases and alias domains are bounded by no per-domain limit in v1.
+  *Unblocked* the limit check and the dashboard figure in five documents.
+- **D8** — every write to a `domain` row is global-admin only. *Unblocked*
+  `domains.md` on authorization entirely. The same question for alias domains
+  and administrator assignment is **Q2**.
+- **D9** — disabling a domain writes `domain.active = 0` and nothing else;
+  re-enabling writes `1`. *Unblocked* the disable/enable path in `domains.md`.
+  Rests on **E8**.
+- **OQ-AUD-03** — the audit entry is written **after** the `vmail` commit.
+  Accepted failure mode: a crash between the two loses an entry, never invents
+  one. *Unblocked* `audit-log.md` BR-15 and closed the old contradiction between
+  "every write is recorded" and "no transaction spans both databases".
+  Implemented in `app/Support/Audit/Audit.php` and its three call sites.
+- **OQ-AUTH-02** — login is limited to 5 attempts per minute, keyed by the
+  submitted address **and** the IP together. **A chosen default, not a sourced
+  one.** *Unblocked* `authentication.md` BR-08. Implemented in
+  `app/Providers/FortifyServiceProvider.php`.
 
 ---
 
-## Answer these first
+## The questions
 
-Ranked by how many feature documents each one unblocks.
+### Authority — who may do what
 
-### D3 — What may a domain admin write, as opposed to see? — **partly decided**
+#### Q1 — Does an inactive or expired `domain_admins` row still grant administration?
 
-**Unblocks 2 documents.** The domains half is answered — see **D8**: every write
-to a `domain` row is global-admin only, and no `domain_admins` row is created as
-a side effect of creating a domain. What remains is everything D8 did not reach.
+**Unblocks 3 documents.** `OQ-DA-04`, `OQ-AUTH-05`, `OQ-DASH-05`.
 
-`docs/policies/authorization.md` §2 decides **visibility** for domain-owned
-resources. It decides nothing about write authority, and it cannot reach an
-object that does not belong to anyone yet.
+The table listing which domains an administrator manages carries `active` and
+`expired` columns. Nothing sourced says any iRedMail component reads either.
+Mailward has to decide whether it does — and if it does, whether an
+administrator whose only grants are switched off is refused login or signs in to
+an empty screen.
 
-**What is still open**
+| Option | What changes in the product | What it costs |
+|---|---|---|
+| **A** — Ignore both; the row's existence is the grant | Matches everything currently known about iRedMail; the two columns become values Mailward writes and never reads | Nothing. It is what the code does today and what `domain-admins.md` BR-10 already specifies for v1 |
+| **B** — Honour both; such an administrator signs in with an empty scope | A grant can be suspended without deleting the row; reuses the empty-state path BR-A03 already requires | One predicate in the scope query, plus a toggle in the UI. Mailward and iRedAdmin then disagree about who administers a domain |
+| **C** — Honour both; such an administrator is denied login | As B, plus a new denial reason at the login gate | As B, plus a login branch that BR-A03 says must not exist for the no-domains case |
 
-| Open question | The choice |
-|---|---|
-| `alias-domains.md` OQ-AD-04 — may a domain admin create or delete an alias domain pointing at a domain they administer? | An alias domain also adds a name to the server's namespace, which is the reasoning D8 used for domains; but alias domains are attached to a specific target domain the actor does administer, so the answer need not be the same and must be stated, not inherited |
-| `domain-admins.md` OQ-DA-01 — may a domain admin assign or remove another administrator on a domain they administer? | Self-propagating authority: a domain admin who may grant the role can widen access to their domain without a global admin. Independent of D8 |
+**Recommendation: A.** Honouring a column nothing else honours makes the two
+panels disagree, and B's only benefit — suspend without deleting — is already
+available by removing the row and re-adding it.
 
-**Why the rest cannot be guessed.** The scope rule has no term for write
-authority. Both readings remain consistent with the policy as written, and the
-choice is a statement about how much the organisation trusts a domain admin, not
-a fact about iRedMail.
+**Re-check:** `Actor::administeredDomains()`
+(`app/Support/Authorization/Actor.php`) filters `username` and excludes the
+`'ALL'` sentinel, and filters **neither** `active` nor `expired`. That is
+currently a gap rather than a decision; answering A makes it correct as written.
 
-**Options for the remainder**
+Choosing A makes **E6**'s `domain_admins` half informational rather than
+blocking. The same shape of doubt about `forwardings.active` on an alias member
+row is **Q19**, answered separately.
 
-| Option | Consequence |
-|---|---|
-| Read-mostly, extending D8 — these writes are global-admin-only too | Consistent with D8; a domain admin cannot in practice run a domain alone |
-| Domain admins write inside their domains but never change the server's namespace | The middle position, and the one D8 already takes for domains; for OQ-AD-04 it means no, for OQ-DA-01 it means yes |
-| Full symmetry inside scope | For OQ-DA-01 it means a domain admin can appoint further administrators of their domain |
+#### Q2 — May a domain admin write anything beyond the contents of their domains?
 
-Already decided and not reopened: setting or clearing `mailbox.isglobaladmin` is
-global-admin-only (`domain-admins.md` BR-11); every write to a `domain` row is
-global-admin only (D8).
+**Unblocks 2 documents.** `OQ-AD-04`, `OQ-DA-01`.
 
-**Resolves** — `alias-domains.md` OQ-AD-04; `domain-admins.md` OQ-DA-01.
-Adjacent to D6. (`domains.md` OQ-DOM-01 and OQ-DOM-02 were resolved by D8.)
+D8 settled the domain record: global admin only. Two writes it did not reach —
+creating or deleting an alias domain that points at a domain the actor
+administers, and assigning or removing another administrator on a domain they
+administer. Neither is a fact about iRedMail; it is a statement about how much
+the organisation trusts a domain admin.
 
----
+| Option | What changes in the product | What it costs |
+|---|---|---|
+| **A** — Both global-admin only | Consistent with D8; a domain admin cannot run a domain unaided | Nothing. The same gate `domains.md` BR-19 already uses |
+| **B** — Administrators may be assigned inside one's own domains, but no name may be added to the server's namespace (yes to OQ-DA-01, no to OQ-AD-04) | The middle position, and the one D8 already takes for domains | One policy per feature |
+| **C** — Full symmetry inside scope; both allowed | A domain admin can appoint further administrators of their domain, widening access without a global admin | Same code cost, larger blast radius |
 
-### D4 — Does `domain_admins.active = 0` or a past `expired` revoke a grant?
+**Recommendation: A.** v1 has no way to review or revoke a grant a domain admin
+made — there is no notification, and Q1 recommends no suspend — so
+self-propagating authority is hard to unwind. Opening this later is additive;
+closing it later breaks a workflow administrators have come to rely on.
 
-**Unblocks 3 documents.**
+#### Q3 — Who may read the audit log?
 
-The table carries `active` and `expired` columns. Nothing sourced says any
-iRedMail component reads either (`open-questions-research.md`, "Still unknown",
-OQ-02). Mailward has to decide whether it does.
-
-**Why it cannot be guessed.** Half of it is empirical (E7 — does iRedAdmin
-honour it), half is a policy choice that stands even if iRedMail ignores the
-column: honouring a column nothing else honours means the two panels disagree
-about who is an administrator.
-
-**Options**
-
-| Option | Consequence |
-|---|---|
-| Honour both | Mailward can suspend a grant without deleting the row; diverges from iRedMail if E7 shows the column is dead |
-| Ignore both — row existence is the grant | Matches everything currently known; the columns become write-only noise Mailward maintains for form |
-| Current interim (`domain-admins.md` BR-10): always write `active = 1`, offer no disable action | Already the specified v1 behaviour; the decision is only whether to keep it |
-
-**Second half of the question:** if honoured, does an administrator whose only
-grants are inactive get **denied login**, or does he sign in with an empty scope
-(`authentication.md` OQ-AUTH-05 vs `dashboard.md` OQ-DASH-05)? BR-A03 already
-requires the empty-state path to exist, so denial would be a new behaviour.
-
-**Resolves** — `domain-admins.md` OQ-DA-04; `authentication.md` OQ-AUTH-05;
-`dashboard.md` OQ-DASH-05. The same shape of doubt applies to
-`forwardings.active` on an `is_list` row (`aliases.md` OQ-AL-07 → P3).
-
----
-
-### D5 — May two objects claim the same name, and must an address's domain be local?
-
-**Unblocks 3 documents.**
-
-Four related gaps: may an `alias.address` equal an existing `mailbox.username`;
-must the domain part of an alias address exist in `domain`; must a per-user
-alias address belong to a domain the server hosts and the actor administers; may
-one name be both a `domain` row and an `alias_domain` row.
-
-**Why it cannot be guessed.** `02-domain.md` §3 states the "target domain must
-exist" rule for alias domains **only**, and says nothing equivalent anywhere
-else. What iRedMail's delivery actually does when a mailbox and an alias share
-an address is observable, not decidable — see E8.
-
-**Options**
-
-| Option | Consequence |
-|---|---|
-| Strict — every address Mailward writes must sit in a domain the server hosts, and no two objects may claim the same address | Predictable; rejects some configurations that iRedMail itself accepts, and needs a cross-table uniqueness check the schema cannot help with |
-| Permissive — validate format only, let delivery resolve conflicts | No new checks; Mailward will happily create rows whose behaviour depends on E8 |
-| Split — strict on locality, permissive on collisions (or the reverse) | Needs the two halves stated separately in each feature document |
-
-**Resolves** — `aliases.md` OQ-AL-03, OQ-AL-09;
-`mailbox-aliases-forwardings.md` OQ-A4; `alias-domains.md` OQ-AD-01.
-
-Note: OQ-A4's *authorization* half is already decided —
-`mailbox-aliases-forwardings.md` BR-02 puts the decision on the owning mailbox's
-domain, never the destination's. Only "is it allowed at all" is open.
-
----
-
-### D6 — Who may read the audit log?
-
-**Unblocks 1 document, but blocks it completely.**
+**Unblocks 1 document, and blocks all of it.** `OQ-AUD-01`.
 `audit-log.md` BR-14 states the feature is not implementable until this is
-answered, and `GET /audit-log` has no authorization rule to enforce without it.
+answered; `GET /audit-log` has no rule to enforce without it. `audit_log` is a
+Mailward-owned entity, so the scope rule of `docs/policies/authorization.md` §2
+does not reach it as written.
 
-`audit_log` is a Mailward-owned entity (`02-domain.md` §13), not a domain-owned
-resource, so the scope rule of `docs/policies/authorization.md` §2 does not
-reach it as written.
+| Option | What changes in the product | What it costs |
+|---|---|---|
+| **A** — Global admins only | The feature becomes implementable immediately; a domain admin cannot see who probed their own domain, which is one of the log's stated purposes | Nothing |
+| **B** — Domain admins additionally see entries whose target resolves into their domains | A domain admin can audit their own domain | A target → domain resolver for every `target_type`, plus a rule for the entries that have no domain at all |
+| **C** — B, plus their own entries regardless of target | As B | As B, plus one predicate |
 
-**Why it cannot be guessed.** The only authorization concept in the product does
-not apply to this table, and the policy declines to extend itself.
+**Recommendation: A for v1.** It is the only option needing no target → domain
+resolver, and B is purely additive later.
 
-**Options**
+Under B or C the **unscopable residue** must be answered in the same breath:
+sign-in failures, settings changes, domain-admin assignments and console runs
+have no domain — hide them, or make them global-only. **Choosing A makes that
+sub-question disappear.**
 
-| Option | Consequence |
-|---|---|
-| Global admins only | The feature becomes implementable immediately; a domain admin cannot see who probed their own domain, which is one of the log's stated purposes |
-| Domain admins see entries whose target resolves into their domains | Needs a target → domain resolution for every `target_type`, and leaves the unscopable entries below to be hidden or made global-only |
-| The above plus their own entries regardless of target | Same cost, plus a second predicate |
+### Identity and naming
 
-**The unscopable residue** either option 2 or 3 must dispose of: sign-in
-failures, settings changes, domain-admin assignments and console runs have no
-domain. If option 1 is chosen, this sub-question disappears.
+#### Q4 — May two objects claim the same address, and must an address's domain be local?
 
-**Resolves** — `audit-log.md` OQ-AUD-01.
+**Unblocks 3 documents.** `OQ-AL-03`, `OQ-AL-09`, `OQ-A4`, `OQ-AD-01`.
 
----
+Four gaps, one decision with two halves. **Locality:** must the domain part of
+an address Mailward writes already exist in `domain`? **Collisions:** may an
+`alias.address` equal an existing `mailbox.username`, and may one name be both a
+`domain` row and an `alias_domain` row? `02-domain.md` §3 states the
+"target domain must exist" rule for alias domains only, and nothing equivalent
+anywhere else.
 
-### D7 — The supported iRedMail version range
+| Option | What changes in the product | What it costs |
+|---|---|---|
+| **A** — Strict on both | Predictable; rejects some configurations iRedMail itself accepts | A cross-table uniqueness check across `mailbox`, `alias`, `domain` and `alias_domain` that the schema cannot help with, and that must fold case identically on both drivers (D17) |
+| **B** — Permissive on both; validate format only | No new checks; Mailward will create rows whose delivery behaviour is whatever **E7** turns out to be | Nothing, and nothing is caught |
+| **C** — Strict on locality, permissive on collisions | The common typo — an address in a domain the server does not host — is refused; conflicts are left to delivery | One `EXISTS` per write |
+| **D** — The reverse of C | Collisions refused, foreign domains allowed | As A, without the cheap half |
 
-**Unblocks no feature document — and bounds every entry in the next section.**
+**Recommendation: C.** Locality is one query, it catches the typo that otherwise
+produces a silently dead address, and it matches the rule `02-domain.md` §3
+already imposes on `alias_domain.target_domain`. Collision-strictness is
+expensive and would forbid arrangements a running iRedMail may resolve sensibly
+— which is only knowable from **E7**.
+
+The *authorization* half of OQ-A4 is already decided:
+`mailbox-aliases-forwardings.md` BR-02 puts the decision on the owning mailbox's
+domain, never the destination's. Only "is it allowed at all" is open here.
+**Choosing A or C makes E7 informational rather than blocking. Q17's
+recommendation assumes locality is enforced; if B is chosen here, Q17 must be A.**
+
+#### Q5 — Can a domain or an alias domain be renamed?
+
+**Unblocks 2 documents.** `OQ-DOM-08`, `OQ-AD-02`.
+
+`domain.domain` is the primary key and is denormalised into `mailbox.domain`,
+`alias.domain`, `forwardings.domain`, `forwardings.dest_domain`,
+`domain_admins.domain`, `used_quota.domain` and `last_login.domain`, with no
+foreign key to propagate a change. Renaming an alias account is already out of
+scope (`aliases.md`).
+
+| Option | What changes in the product | What it costs |
+|---|---|---|
+| **A** — No renames in v1 | Consistent with the alias decision. A rename must be performed as delete-and-recreate, which under D1 destroys every account in the domain — the UI has to say so, not imply a workaround | Nothing |
+| **B** — Renames supported | An administrator can correct a domain name | Not a rename but a rewrite of every address on the server: seven denormalised columns, plus `mailbox.username` and `alias.address` which embed the domain, plus `maildir` which embeds it again and which Dovecot resolves to a directory that already exists on disk |
+| **C** — Alias domains renameable, domains not | An alias domain has at most one referencing column (`forwardings.dest_domain`, unverified) | Small, but leaves an asymmetry to explain |
+
+**Recommendation: A.** Option B is a data migration disguised as a form field,
+and nothing in the v1 scope line asks for it.
+
+### Deletion and lifecycle
+
+#### Q6 — Do deletions also remove the rows that point *at* the deleted object?
+
+**Unblocks 2 documents.** `OQ-M9`, `OQ-AL-10`.
+
+D1 made every deletion an explicit cascade, and the mailbox cascade already
+removes inbound rows — rows elsewhere naming the address as a forwarding target
+or as an alias member (`mailboxes.md` BR-23, items 4 and 5). It left two places
+asymmetric:
+
+- **(a)** deleting a mailbox does **not** remove that account's `domain_admins`
+  rows, so a deleted administrator leaves grants naming an account that no
+  longer exists — and re-creating the same address silently inherits them.
+- **(b)** deleting a standalone alias does **not** remove rows elsewhere naming
+  the alias as a forwarding target or as a member of a second alias, so the
+  alias address survives as a live routing target after the alias is gone.
+
+| Option | What changes in the product | What it costs |
+|---|---|---|
+| **A** — Symmetric: both cascades reach inbound rows, and mailbox deletion reaches `domain_admins` | No dangling reference survives any delete; matches what the mailbox cascade already does for `forwardings` | Two more `DELETE` statements, inside transactions that already exist |
+| **B** — Leave as written | Ships sooner; leaves rows iRedMail's own tooling also leaves | (a) is a privilege escalation, not untidiness |
+| **C** — Fix (a), leave (b) | Closes the escalation, keeps the routing wart | One `DELETE` |
+
+**Recommendation: A.** (a) is a security bug: delete `admin@example.com`,
+re-create the address, and the new account silently regains every domain the old
+one administered. (b) is the same "looks right, routes wrong" class the mailbox
+cascade was written to avoid.
+
+#### Q7 — What does demoting an administrator write, and what does `mailward:promote` do without `--global`?
+
+**Unblocks 1 document.** `OQ-DA-02`, `OQ-DA-03`. Two halves of one lifecycle.
+
+A full demotion removes the `domain_admins` rows — does it also clear
+`mailbox.isadmin`? Leaving it set produces the state BR-A03 describes: the
+account signs in and sees an empty screen. Clearing it removes panel access
+entirely. Separately, `mailward:promote <address>` without `--global`: does it
+grant per-domain administration, and with what argument, or is the flag
+mandatory?
+
+| Option | What changes in the product | What it costs |
+|---|---|---|
+| **A** — Demote clears `isadmin`; `--global` is mandatory | "Demoted" means "no longer has the panel"; the recovery command does exactly one thing | Nothing |
+| **B** — Demote leaves `isadmin`; the command takes an optional `--domain=` | Demotion is reversible without re-promoting; the command becomes a general grant tool | A second code path in the command, and a second empty state to test |
+
+**Recommendation: A.** An administrator who can still sign in but can see
+nothing is a support ticket; BR-A03's empty state exists for the *domain was
+deleted* case, not as a demotion target. Keeping the recovery command
+single-purpose is part of what makes BR-A04 trustworthy.
+
+**Note:** `mailward:promote` **does not exist yet** — there is no
+`app/Console/Commands` directory. BR-A04 is unimplemented, and the audit layer
+already stamps the literal `'console'` as actor for writes made outside a
+request (see **Q10**).
+
+### Audit log shape
+
+#### Q8 — What counts as "a write Mailward performs"?
+
+**Unblocks 2 documents.** `OQ-AUD-02`, `OQ-AUD-05`, `OQ-AUTH-06`.
+
+Read literally, "every write" covers `sessions`, `cache` and `jobs`, which makes
+the log unusable. Three lines to draw, best drawn together: **(a)** which
+tables — `vmail` only, or also Mailward's own `settings`, `panel_profiles`,
+`two_factor_secrets`? **(b)** are failed writes recorded — validation
+rejections, driver errors, limit refusals, a change blocked by BR-A01? **(c)**
+is a *successful* sign-in recorded? It is neither a `vmail` write nor a failure,
+yet it is what an audit reader looks for beside the failures — and it writes
+`panel_profiles`, which is question (a).
+
+| Option | What changes in the product | What it costs |
+|---|---|---|
+| **A** — `vmail` writes, `settings`, successful sign-ins, and deliberate refusals (BR-A01, per-domain limits). Not driver errors, not validation rejections, not `panel_profiles`/`sessions`/`cache`/`jobs` | The log reads as "what an administrator did or tried to do"; a sign-in timeline exists; an attempt to delete the last global admin is captured | One allowlist and one call at each refusal site |
+| **B** — `vmail` writes only, successes only | Smallest log; the single most interesting event in it — the blocked lockout attempt — is absent | Nothing. It is what the code does today |
+| **C** — Everything, including validation rejections | Most faithful; a mistyped form fills the log, and volume then makes **Q11** urgent | A hook in the validation layer, which is exactly where the noise comes from |
+
+**Recommendation: A.** It captures intent rather than only outcomes, without
+recording every typo, and it draws the table line where the reader's mental
+model already is: the mail data plus the panel's own configuration.
+
+**Re-check:** today there are exactly three audit call sites, all in the domains
+Actions. Sign-ins, authorization failures and rate-limit rejections go to the
+Laravel log, not to `audit_log`. `panel_profiles`, `two_factor_secrets` and
+`settings` have no migration at all, so (a) is currently unanswerable in code.
+Note `docs/policies/authorization.md` §7 mandates recording authorization
+failures and that is **not implemented** — it is not part of this question, it
+is a gap to close whichever option is chosen.
+
+#### Q9 — One entry per business operation, or one per row written?
+
+**Unblocks 1 document.** `OQ-AUD-04`.
+
+Creating a mailbox writes two `vmail` rows; deleting a domain writes dozens
+through the D1 cascade.
+
+| Option | What changes in the product | What it costs |
+|---|---|---|
+| **A** — One entry per business operation, the affected rows summarised in `before`/`after` | The log reads as a list of what an administrator did; a domain deletion is one line naming what it removed | The payload becomes structured rather than one row's columns |
+| **B** — One entry per row | Faithful; one domain deletion produces a page of entries, and the operation that caused them is unrecoverable without a correlation id | A correlation id — which is option A with extra steps |
+
+**Recommendation: A.** **Resolved by code for domains:** `DeleteDomain` already
+writes exactly one entry for a cascade of any size. This question is only
+whether to confirm that as the rule for every feature. If A, the domain deletion
+entry should carry the counts it removed — it currently does not.
+
+#### Q10 — What actor and IP are recorded for a write made outside a web request?
+
+**Unblocks 2 documents.** `OQ-AUD-08`, `OQ-DA-07`.
+
+`php artisan mailward:promote <address> --global` has no session and no IP, and
+it is the documented escape hatch (BR-A04) — precisely the moment an audit
+reader most wants visibility.
+
+| Option | What changes in the product | What it costs |
+|---|---|---|
+| **A** — Audited under a sentinel actor, with the OS user and hostname in place of the IP | The escape hatch is visible in the log and distinguishable from a web action | Resolving the OS user; trivial |
+| **B** — Audited with the target address as the actor | No new concept | The log then claims the promoted account promoted itself |
+| **C** — Not audited | Nothing to build | The one write nobody authorised through the panel is the one write with no record |
+
+**Recommendation: A.** The sentinel is honest about what happened, and the OS
+user is the only identity the invocation actually has.
+
+**Resolved by code, partially:** `AuditEntry` already stamps the literal
+`'console'` as actor when there is no authenticated user, and
+`deleted_mailboxes.admin` uses the same fallback. Confirming A means keeping
+that sentinel and adding the OS user and hostname.
+
+#### Q11 — Is the audit log ever pruned, archived or capped?
+
+**Unblocks 1 document.** `OQ-AUD-06`.
+
+The log is append-only with no retention rule, so it grows without bound, and
+any pruning rule is the one operation that contradicts BR-05.
+
+| Option | What changes in the product | What it costs |
+|---|---|---|
+| **A** — No retention in v1; document the growth, offer export later | BR-05 stays absolute and the log's evidentiary value is unqualified | Nothing to build; something to watch |
+| **B** — A configurable retention window with a scheduled prune | The table stays bounded; BR-05 weakens to "no entry is modified, and entries older than N are deleted wholesale", which is a different guarantee | A scheduled command and a settings field |
+| **C** — Cap by row count | Bounded without a date rule; the cap silently discards the oldest evidence first | As B |
+
+**Recommendation: A.** An append-only log with a delete path is not an
+append-only log, and an admin panel's write volume is small.
+
+**Re-check, and this one is live:** `config/activitylog.php` currently carries
+the package default `'clean_after_days' => 365`. Under A that must be disabled
+explicitly, or the log silently self-prunes against BR-05.
+
+### Login and passwords
+
+#### Q12 — Where does an unverifiable password scheme surface?
+
+**Unblocks 1 document**, plus ADR `0007` and `01-architecture.md` §5. `OQ-AUTH-01`.
+Resolves contradiction **C2**; bounded by **C3**.
+
+When a stored hash is in a scheme Mailward cannot verify, `0007` requires "a
+hard failure at login, never a silent denial" while `authentication.md` BR-07
+requires every denial to be indistinguishable — same status, same body, same
+timing. Telling an anonymous caller "we cannot verify this account's scheme"
+confirms the account exists.
+
+| Option | What changes in the product | What it costs |
+|---|---|---|
+| **A** — Operator-visible only: generic denial to the caller, distinguishable in the application log, surfaced in a health check and a banner for signed-in administrators | BR-07 is untouched; "hard and visible" is scoped to operator surfaces, and `0007` is corrected to say so | A health check that scans `mailbox.password` prefixes |
+| **B** — Caller-visible | `0007` is satisfied literally | The login form becomes an account-existence oracle, which `01-architecture.md` §5 exists to close |
+| **C** — Generic denial, no operator surface at all | Cheapest | The account is dead and nobody is told until a user complains |
+
+**Recommendation: A.** It is the only option that satisfies both documents
+rather than picking a winner, and the health check it needs is already wanted
+for two other findings: mixed-case rows on PostgreSQL (`0005`), and rows whose
+scheme a Dovecot 2.4 server has disabled (**C3**). All three are the same scan.
+
+**Resolved by code, half:** `SchemeRegistry` throws, `AuthenticateAdministrator`
+catches it, logs at error level and returns a generic denial. The caller-facing
+half of A is already built; only the operator surface and the `0007` wording
+correction remain.
+
+#### Q13 — Does losing the administrator flag end a live session?
+
+**Unblocks 1 document.** No `OQ-` id — raised by the implementation against
+`authentication.md` BR-18 ("Authorization is re-evaluated on the server on every
+request").
+
+The admin gate currently runs at login only. A session created while
+`isadmin = 1` survives the flag being cleared, the account being deactivated,
+its `expired` date passing, or the mailbox being deleted, until the session
+expires on its own (120 minutes).
+
+| Option | What changes in the product | What it costs |
+|---|---|---|
+| **A** — Re-check `isadmin`/`isglobaladmin`, `active` and `expired` on every request; fail closed | Demotion, deactivation and deletion take effect immediately; BR-18 is true as written | One indexed `mailbox` lookup per request, on a connection every request already uses |
+| **B** — Re-check on a short interval cached in the session | Bounded staleness at a fraction of the cost | A cache key and a staleness figure to justify |
+| **C** — Leave as it is: the gate runs at login | Nothing to build | BR-18 has to be reworded to say the opposite of what it says, and Q7's "demote removes panel access" becomes "removes it within two hours" |
+
+**Recommendation: A.** The check is one primary-key lookup, the product's read
+pattern is otherwise trivial, and C makes every lockout rule in
+`docs/policies/authorization.md` §5 advisory for the length of a session.
+
+There is a `->todo()` test in `tests/Feature/Auth/LoginTest.php` holding this
+exact gap.
+
+#### Q14 — Is two-factor authentication in v1?
+
+**Unblocks 1 document.** `OQ-AUTH-03`.
+
+`two_factor_secrets` is enumerated in `02-domain.md` §13, but 2FA is not in the
+v1 scope list in `00-overview.md` §5.
+
+| Option | What changes in the product | What it costs |
+|---|---|---|
+| **A** — Not in v1 | Login stays two steps with no challenge state; the table stays specified and unbuilt | Nothing |
+| **B** — In v1, optional per administrator | An administrator can protect the panel independently of their mail password | Enrolment, verification, recovery codes, and a reset path for an administrator who loses their device — a second escape hatch beside `mailward:promote` |
+| **C** — In v1, enforceable instance-wide | As B, plus the organisation can require it | As B, plus a setting and a "must enrol before proceeding" gate |
+
+**Recommendation: A**, weakly. The scope list excludes it. But if 2FA is wanted
+at all it is markedly cheaper to build now than to retrofit a challenge state
+into a shipped login, so this is a scope question worth answering deliberately
+rather than by default.
+
+**Re-check:** Fortify's `features` array is empty and there is no
+`two_factor_secrets` migration, but a `two-factor` rate limiter is registered
+and `remember_token`/`two_factor_secret` are already in the audit redaction
+list. Choosing A means removing the dead limiter. Choosing A also makes the
+`two_factor_secrets` step of the D1 cascade a permanent no-op, which the feature
+documents should say rather than imply.
+
+### Limits and validation
+
+#### Q15 — What does `domain.maxquota` constrain?
+
+**Unblocks 1 document.** `OQ-M6`.
+
+`02-domain.md` §2 describes the column without giving it a rule, and
+`dashboard.md` already excludes it as a limit figure, so only the mailbox-side
+rule is open.
+
+| Option | What changes in the product | What it costs |
+|---|---|---|
+| **A** — Nothing; stored, editable, never enforced | Same treatment `maillists` already gets (`domains.md` BR-05); no surprise rejections | Nothing |
+| **B** — Caps an individual mailbox's `quota` | An administrator cannot give one account more than the domain allows | One comparison on mailbox create and edit |
+| **C** — Caps the sum of the domain's mailbox quotas | A domain cannot be over-allocated | A `SUM` inside every mailbox write transaction, and the same count-then-insert race as **Q16** |
+
+**Recommendation: B.** It is what the column name reads as to an administrator,
+it is one comparison, and it introduces no second racy aggregate.
+
+**Blocked by C1.** No `maxquota` rule can be implemented before the quota unit
+is settled — the domain column is documented as bytes while `mailbox.quota` may
+be mebibytes, and a cap comparing the two in different units is worse than no
+cap. Nothing in the code multiplies or divides by 1048576 anywhere today.
+
+#### Q16 — Must the per-domain limit check close the count-then-insert race?
+
+**Unblocks 1 document.** `OQ-M7`.
+
+`docs/policies/authorization.md` §5 requires a same-transaction check for the
+last-global-admin case only. Two concurrent creates can exceed
+`domain.mailboxes` by one.
+
+| Option | What changes in the product | What it costs |
+|---|---|---|
+| **A** — Count inside the transaction, no lock; accept the race | The limit is a guardrail: two simultaneous creates can exceed it by one, and the next create is refused | Nothing |
+| **B** — Lock the `domain` row for update inside the create transaction | Exact | One `lockForUpdate`, serialised creates within a domain, and a driver behaviour difference to test |
+
+**Recommendation: A**, but **weakly — there is no basis to prefer one** if the
+owner treats these limits as contractual rather than advisory. Nothing in the
+product bills on them, and `0` already means unlimited.
+
+#### Q17 — Is a forwarding or alias-member target validated beyond address format?
+
+**Unblocks 2 documents.** `OQ-A8`, `OQ-AL-04`.
+
+Two related targets. **(a)** Must a forwarding target inside a locally hosted
+domain correspond to an existing account, and are self-referencing or circular
+targets between two local mailboxes refused? **(b)** May an alias member be
+outside the actor's administered domains, or off the server entirely?
+
+| Option | What changes in the product | What it costs |
+|---|---|---|
+| **A** — Format only, both | Forwarding anywhere works; a typo silently creates a bouncing target; a domain admin can forward mail off the server | Nothing |
+| **B** — Format only for external targets; a target inside a locally hosted domain must exist. No restriction on member domains | The common typo is caught; external distribution lists still work | One `EXISTS` on the local branch |
+| **C** — B, plus refusing circular pairs | A ↔ B loops refused at write time | A graph walk on every write that still cannot see loops formed through aliases |
+
+**Recommendation: B.** Restricting the *destination* is what a hosting provider
+does, and `00-overview.md` §3 rules that shape out explicitly — administrators
+are staff, not customers. Loop detection is not worth a walk that cannot be
+complete.
+
+**Depends on Q4.** B here is the same rule as Q4's locality half. If Q4 is
+answered permissively on locality, this must be A or the two contradict.
+
+#### Q18 — Must a standalone alias have at least one member?
+
+**Unblocks 1 document.** `OQ-AL-08`.
+
+A member-less alias accepts mail and delivers it nowhere.
+
+| Option | What changes in the product | What it costs |
+|---|---|---|
+| **A** — Yes: creation requires a member, and removing the last one is refused | No black-hole address can exist | The create form must write two tables in one transaction, and editing loses a natural intermediate state |
+| **B** — No: a member-less alias is valid and flagged in the UI | Create, then add members — the natural order; the black hole is visible rather than impossible | A warning badge |
+
+**Recommendation: B.** A forces a two-table create for an invariant nothing else
+depends on, and an alias whose last member was just removed is a legitimate
+step in editing it.
+
+#### Q19 — Is per-row enable/disable exposed for forwardings and alias members?
+
+**Unblocks 2 documents.** `OQ-A6`, `OQ-AL-07`.
+
+Both row kinds have an `active` column defaulting to `1`. Nothing sourced says
+any iRedMail component reads `forwardings.active` on an `is_list` row.
+
+| Option | What changes in the product | What it costs |
+|---|---|---|
+| **A** — Create and delete only; always write `active = 1` | Smallest surface; matches what `domain-admins.md` BR-10 already does for the identical doubt | Nothing |
+| **B** — Expose the toggle | A member can be suspended without losing it — *if* anything honours the column | A control, and a promise Mailward cannot keep until **E6** says it can |
+
+**Recommendation: A** until E6 shows the column is honoured. A toggle that does
+nothing is worse than no toggle. **Choosing A makes E6's `forwardings` half
+informational rather than blocking.**
+
+#### Q20 — Which of the ~30 `enable*` service toggles does the form expose?
+
+**Unblocks 1 document.** `OQ-M8`.
+
+The scope line says only "enabled services", and `02-domain.md` §4 enumerates
+the columns without grouping them.
+
+| Option | What changes in the product | What it costs |
+|---|---|---|
+| **A** — A curated subset: SMTP, POP3, IMAP, delivery (LDA/LMTP), Sieve/ManageSieve, SOGo. The rest keep whatever iRedMail set and are never written | A form an administrator can read; Dovecot internals stay out of reach | One allowlist |
+| **B** — All ~30, grouped | Complete control | Thirty checkboxes including `enablelib-storage`, `enablequota-status` and `enableindexer-worker`, which are Dovecot internals no administrator should switch off |
+| **C** — One "services" preset per account | Least to get wrong | Loses the per-protocol control the scope line implies |
+
+**Recommendation: A**, and: `enablesogo` gates the three SOGo columns — turning
+SOGo off writes `'n'` to `enablesogowebmail`, `enablesogocalendar` and
+`enablesogoactivesync`; turning it on writes `'y'`. Those three are character
+columns and never receive a boolean cast (matrix D5).
+
+### Dashboard
+
+#### Q21 — Do the account counts include inactive and expired rows?
+
+**Unblocks 1 document.** `OQ-DASH-02`.
+
+| Option | What changes in the product | What it costs |
+|---|---|---|
+| **A** — Count every row, with an "of which inactive" figure beside each count | The headline number matches what the listing shows, and the follow-up question is answered on the same screen | One extra aggregate per count |
+| **B** — Active and unexpired only | The dashboard answers "how much is live" | The count stops matching the listing total, which is a support ticket waiting to happen |
+| **C** — Every row, no breakdown | Cheapest | The obvious follow-up needs a second screen |
+
+**Recommendation: A.** The same answer decides the domain count: a disabled
+domain is counted and shown as inactive.
+
+#### Q22 — What is "last login", and what makes an account dormant?
+
+**Unblocks 1 document.** `OQ-DASH-04`.
+
+`last_login` has three columns — `imap`, `pop3`, `lda`.
+
+| Option | What changes in the product | What it costs |
+|---|---|---|
+| **A** — The greater of `imap` and `pop3`; `lda` excluded. Dormant = no such login within the threshold | "Last login" means a person connected; `lda` records delivery, not a login | Nothing |
+| **B** — The greatest of all three | An account nobody has ever read looks active because mail arrives | Nothing, and the figure is wrong |
+| **C** — One nominated protocol, configurable | Correct on any install | A setting nobody will change |
+
+**Recommendation: A**, with a 90-day threshold, configurable. **The threshold
+itself has no basis** — pick the number you would act on. Values that are
+negative, zero or in the future are reported as unknown and never ranked
+(`dashboard.md` BR-12), which is already decided.
+
+### Compatibility
+
+#### Q23 — What is the supported iRedMail version range?
+
+**Unblocks no feature document — and scopes every empirical answer below.**
+`OQ-01`.
 
 `00-overview.md` §8 promises a declared range, runtime detection and refusal to
-operate outside it. Nothing declares one yet.
+operate outside it. Nothing declares one. iRedMail publishes no support-lifetime
+policy to anchor it to, so the range is Mailward's own choice.
 
-**Why it cannot be guessed.** iRedMail publishes no support-lifetime policy to
-anchor it to, so the range is Mailward's own choice, justified by schema shape.
+| Option | What changes in the product | What it costs |
+|---|---|---|
+| **A** — 1.7.3 (Apr 2025) and later, validated against 1.8.4 | Six `mailbox` columns and two `deleted_mailboxes` columns are guaranteed present; a 1.7.0–1.7.2 install is refused rather than half-working | The refusal path, which does not exist yet |
+| **B** — Lower the floor below 1.7.3 | Older installs are supported | A second column set in `schema-type-matrix.md` and conditional reads for `first_name`, `last_name`, `mobile`, `telephone`, `birthday`, `recovery_email`, `deleted_mailboxes.bytes` and `.messages` — permanently |
+| **C** — 1.8.x only | Smallest matrix | Excludes every install predating April 2026 |
 
-**Proposal already on the table** (`current-iredmail-behaviour.md` §4,
-`00-overview.md` OQ-01): **1.7.3 (April 2025) and later, validated against
-1.8.4**, because 1.7.3 is the last release that added columns to `mailbox` and
-`deleted_mailboxes` and `01-architecture.md` §2 forbids Mailward from adding
-them itself. 1.7.2 converted MySQL to `utf8mb4`, which the case handling in
-`0005` depends on; 0.9.7 is the older structural floor (the `alias` →
-`forwardings` split) and is not proposed.
+**Recommendation: A**, argued from schema shape in
+`current-iredmail-behaviour.md` §4: 1.7.3 is the last release that added columns
+to `mailbox`, `01-architecture.md` §2 forbids Mailward from adding them, and
+1.7.2 performed the `utf8mb4` conversion the case handling in `0005` depends on.
+1.8.0 must be **inside** the range, not above it, because it is the first
+release whose Dovecot configuration is generation 2.4.
 
-**Options**
+**Consequence whichever option is chosen:** the axis that matters for the
+password hasher is the Dovecot configuration generation, not the iRedMail
+version (**C3**). `01-architecture.md` §8 names only the two SQL drivers, so the
+real test matrix is two drivers × two Dovecot generations, and a second
+disposable VM is needed before the hasher can be called done.
 
-| Option | Consequence |
-|---|---|
-| 1.7.3+ as proposed | Six columns are guaranteed present; a 1.7.0–1.7.2 deployment is refused rather than half-working |
-| Lower the floor below 1.7.3 | A second column set in `schema-type-matrix.md` and conditional reads for `first_name`, `last_name`, `mobile`, `telephone`, `birthday`, `recovery_email` and `deleted_mailboxes.bytes`/`messages` |
-| Pin to 1.8.x only | Smallest matrix, excludes every install predating April 2026 |
+**Re-check:** `app/Actions/InspectMailBackend.php` implements the *detection*
+half — connection, driver, and the presence of the nine tables — and its own
+docblock states that refusing is unspecified. It reads no version string;
+`/etc/iredmail-release` is a file, not a column, and the `vmail` connection
+cannot see it. Whichever range is chosen, the detection has to be inferred from
+schema shape.
 
-**Consequence for the test matrix either way.** The axis that actually matters
-is the **Dovecot configuration generation**, not the iRedMail version: 2.3 on
-most distributions, 2.4 on Debian 13 and Ubuntu 26.04, and they disagree about
-unprefixed password hashes (C7). `01-architecture.md` §8 currently names only
-the two SQL drivers, so the matrix is two drivers × two Dovecot generations, and
-a second disposable VM is needed before the hasher can be called done.
+#### Q24 — What does Mailward do when the two global-admin representations have drifted?
 
-**Resolves** — `00-overview.md` OQ-01.
+**Unblocks 1 document.** `OQ-DA-08`.
+
+`mailbox.isglobaladmin = 1` with no `'ALL'` row in `domain_admins`, or the row
+with the flag cleared. The two are written independently by iRedMail's tooling.
+
+| Option | What changes in the product | What it costs |
+|---|---|---|
+| **A** — Report it in the health check of Q12; change nothing | Honest; the administrator decides | One check, on a scan that already exists |
+| **B** — Repair it silently on read | The two panels agree again | Mailward writes a `vmail` row nobody asked for, during a `GET`, outside any audited action — contradicting `docs/policies/authorization.md` §7 |
+| **C** — Ignore it | Nothing | Two panels disagree about who is an administrator, silently |
+
+**Recommendation: A.**
+
+**Moot if E1 refutes the sentinel row entirely** — then there is only one
+representation and nothing can drift. The *read* path is already settled:
+`Actor::isGlobalAdmin()` reads the flag alone, so drift cannot affect
+authorization today. This question is about the write path, which does not exist
+yet.
 
 ---
 
-## Empirical — needs a real install
+## Empirical — only a running install can answer these
 
-No amount of deciding answers these. Observations belong in
-`docs/reference/current-iredmail-behaviour.md`, which now exists but is
-documentation-sourced only — it reaches conclusions and states that none of them
-has been run against a running install. Commands below are quoted from
-`docs/reference/open-questions-research.md` where that document supplies them.
-
-Every answer here is **version-scoped** — record `/etc/iredmail-release`
-alongside each observation, and note the Dovecot generation (D7).
+No decision settles these. Observations belong in
+`docs/reference/current-iredmail-behaviour.md`, which is documentation-sourced
+only and states plainly that nothing in it has been run against a live server.
+Every answer is version-scoped: record `/etc/iredmail-release` and
+`dovecot --version` alongside each observation (**Q23**).
 
 ### E1 — How is a global admin represented in `domain_admins`?
 
 Sourced but unconfirmed: `mailbox.isglobaladmin = 1` **and** a `domain_admins`
-row with the literal domain `'ALL'`
-(`open-questions-research.md`, OQ-02, "What is established").
+row with the literal domain `'ALL'`.
 
 ```sql
 SELECT username, domain, active, created FROM vmail.domain_admins ORDER BY username, domain;
@@ -326,28 +626,24 @@ SELECT DISTINCT domain, LENGTH(domain), HEX(domain) FROM vmail.domain_admins;  -
 SELECT * FROM vmail.domain WHERE domain = 'ALL';                               -- must return 0 rows
 ```
 
-Then the behavioural pass that actually decides the write path: clear
-`isglobaladmin` leaving the `ALL` row, log in to iRedAdmin; restore it, delete
-the `ALL` row, log in again. Whichever alone still grants access is what
-iRedAdmin treats as authoritative
-(`open-questions-research.md`, OQ-02, "How to confirm").
+Then the behavioural pass that decides the *write* path: clear `isglobaladmin`
+leaving the `ALL` row, sign in to iRedAdmin; restore it, delete the `ALL` row,
+sign in again. Whichever alone still grants access is what iRedAdmin treats as
+authoritative.
 
-If refuted — no sentinel row — `domain-admins.md` BR-04 and BR-05 both change,
-the `mailward:promote` contract with them, and OQ-DA-05 and OQ-DASH-06
-disappear.
+**Blocks** the promote/demote Actions and `mailward:promote` (`domain-admins.md`
+BR-04, BR-05, BR-A04), and the count that defines "the last global admin"
+(BR-A01). **Read path resolved by code:** `Actor` reads the flag only and
+excludes `'ALL'` from the administered-domain query, so listings and the
+dashboard are already safe either way.
 
 **Resolves** — `00-overview.md` OQ-02; `domain-admins.md` OQ-DA-05, OQ-DA-09;
-`dashboard.md` OQ-DASH-06. Feeds P19.
+`dashboard.md` OQ-DASH-06. Feeds **Q24**.
 
-### E2 — The maildir value: absolute or relative, and the hash rule
-
-**Reduced.** The decisive branch is closed on paper: Dovecot creates the mail
-directory itself and mailbox creation needs no privileged helper — see **A8**.
-What remains is the string's shape, which is still unobserved.
+### E2 — The `maildir` value: shape, and the hash rule
 
 ```sql
-SELECT username, storagebasedirectory, storagenode, maildir, mailboxformat, mailboxfolder
-FROM vmail.mailbox;
+SELECT username, storagebasedirectory, storagenode, maildir, mailboxformat, mailboxfolder FROM vmail.mailbox;
 ```
 
 ```bash
@@ -355,8 +651,7 @@ sudo doveadm user -f home postmaster@example.com   # ground truth for the concat
 ```
 
 Hash rule — create accounts with adversarial local parts using iRedMail's own
-tool and read back only the generated column
-(`open-questions-research.md`, OQ-03, Step 2):
+tool and read back only the generated column:
 
 ```bash
 bash create_mail_user_SQL.sh abcdef@example.com 'pw' > /tmp/u1.sql   # a/b/c vs a/ab/abc
@@ -365,33 +660,30 @@ bash create_mail_user_SQL.sh a.b-c@example.com  'pw' > /tmp/u4.sql   # non-alpha
 grep -o "maildir[^,]*" /tmp/u*.sql
 ```
 
-One confirmatory probe is still worth running, because A8 rests on
-documentation: insert a `mailbox` row (plus its self-referencing `forwardings`
-row) whose `maildir` directory does not exist, then deliver and log in over
-IMAP:
+One confirmatory probe remains for the conclusion that closed OQ-M2 (Dovecot
+creates the mail directory itself, so mailbox creation is plain SQL): insert a
+`mailbox` row plus its self-referencing `forwardings` row whose `maildir`
+directory does not exist, then deliver and log in over IMAP.
 
 ```bash
 echo test | sudo /usr/lib/dovecot/dovecot-lda -d probe@example.com
 sudo ls -la /var/vmail/vmail1/example.com/probe-mailward/
 ```
 
-Note while doing it: the `postmaster` maildir is hashed **without** the
-timestamp suffix, unlike every account created afterwards
-(`current-iredmail-behaviour.md` Q1, fact 7) — so the first account on an
-install is not a valid sample of the generator's output.
+The `postmaster` maildir is hashed **without** the timestamp suffix, unlike
+every account created afterwards, so the first account on an install is not a
+valid sample of the generator's output.
 
-**Resolves** — `00-overview.md` OQ-03; `mailboxes.md` OQ-M3; C3; and the
-`deleted_mailboxes` half of `domains.md` OQ-DOM-05.
+**Blocks** mailbox creation entirely, and confirms the deletion path already
+built: `RecordDeletedMailboxes::absoluteMaildir()` concatenates
+`storagebasedirectory` + `storagenode` + `maildir` today, **implemented but
+unverified**. If the concatenation is wrong, iRedMail's removal cron either
+deletes nothing or resolves a path nobody intended.
 
-### E3 — Password schemes present, and this host's fallback
+**Resolves** — `00-overview.md` OQ-03; `mailboxes.md` OQ-M3; contradiction
+**C4**.
 
-**Reshaped.** `current-iredmail-behaviour.md` Q2 establishes that a current
-iRedMail always writes a prefixed value (`{SSHA512}` on Linux, `{BLF-CRYPT}` on
-the BSDs), and that the fallback for unprefixed values is **not** a constant: it
-is `CRYPT` on the Dovecot 2.3 path and `PLAIN` on the 2.4 path below Dovecot
-2.4.3 — which is what both distributions selecting that path currently ship. See
-**C7**. What must be observed is therefore which generation the target install
-runs, and what is actually in the column.
+### E3 — Password schemes present, and this host's Dovecot generation
 
 ```sql
 SELECT SUBSTRING_INDEX(SUBSTRING_INDEX(password, '}', 1), '{', -1) AS scheme, COUNT(*)
@@ -409,19 +701,23 @@ doveadm auth test probe@example.com 'the password'    # the only end-to-end proo
 ```
 
 Also settle whether `passwordlastchange` is written on a password change by
-anything, and whether anything enforces expiry from it (`mailboxes.md` OQ-M5).
+anything, and whether anything enforces expiry from it.
 
-Until this is done, login itself is unimplementable
-(`open-questions-research.md`, OQ-04, "What it blocks";
-`authentication.md` OQ-AUTH-07).
+**No longer blocks login** — the verifier is implemented and covers `SSHA512`,
+`SSHA256`, `SSHA`, `CRYPT`, `BLF-CRYPT`, `SHA512-CRYPT`, `SHA256-CRYPT`,
+`MD5-CRYPT`, `PLAIN-MD5`, `PLAIN`, `CLEARTEXT` and unprefixed values (treated as
+`CRYPT`), generating `SSHA512` by default. What it still blocks is
+**confidence**: `01-architecture.md` §8 requires the fixtures to be hashes
+generated by a real iRedMail install, not by Mailward's own code, and none exist
+yet. It also decides whether verifying an unprefixed row is a divergence from
+the mail server (**C3**) that the health check of **Q12** must report.
 
 **Resolves** — `00-overview.md` OQ-04; `authentication.md` OQ-AUTH-07;
-`mailboxes.md` OQ-M5. Bounds C2 and C5.
+`mailboxes.md` OQ-M5.
 
 ### E4 — The unit of `mailbox.quota`
 
-See **C1** for the contradiction. Set a known value and read what Dovecot
-enforces:
+See contradiction **C1**. Set a known value and read what Dovecot enforces:
 
 ```sql
 UPDATE vmail.mailbox SET quota = 1 WHERE username = 'probe@example.com';
@@ -432,9 +728,16 @@ sudo doveadm quota get -u probe@example.com
 sudo doveadm user -f quota_rule probe@example.com
 ```
 
-A limit of 1 MiB proves mebibytes; a limit of 1 byte proves bytes.
+A limit of 1 MiB proves mebibytes; a limit of 1 byte proves bytes. Repeat for
+`domain.maxquota` if anything reads it.
 
-**Resolves** — `mailboxes.md` OQ-M1; `dashboard.md` OQ-DASH-01; C1.
+**Blocks** every quota write and every quota figure on the dashboard, and
+**Q15**. No quota value may be written until this is settled; nothing in the
+code multiplies or divides by 1048576 today, so the current behaviour is
+"whatever the column says".
+
+**Resolves** — `mailboxes.md` OQ-M1; `dashboard.md` OQ-DASH-01;
+`00-overview.md` OQ-05; **C1**.
 
 ### E5 — Direction and domain columns of a `forwardings` row
 
@@ -450,63 +753,68 @@ SELECT address, forwarding, domain, dest_domain, is_forwarding, is_alias, is_lis
 FROM vmail.forwardings ORDER BY id;
 ```
 
-Blocks `mailbox-aliases-forwardings.md` in its entirety, and BR-12 of
-`aliases.md` (the authorization scope key) depends on it.
+**Blocks** `mailbox-aliases-forwardings.md` in its entirety, and `aliases.md`
+BR-12 — the authorization scope key for a member row.
 
-**Resolves** — `mailbox-aliases-forwardings.md` OQ-A1, OQ-A2;
-`aliases.md` OQ-AL-02.
+**Resolves** — `mailbox-aliases-forwardings.md` OQ-A1, OQ-A2; `aliases.md`
+OQ-AL-02.
 
-### E6 — What `domain.active = 0` actually stops
+### E6 — Is `domain_admins.active` read by anything, and `forwardings.active` on an `is_list` row?
 
-**Now a confirmation, not an open choice.** D9 decided that disabling writes
+Set `active = 0` on a real per-domain grant, sign in to iRedAdmin, and check
+whether the domain is still administrable. Repeat with a past `expired`.
+Separately, disable an `is_list` member row and send mail to the alias — does
+the member still receive it?
+
+**Blocks** nothing if **Q1** is answered A and **Q19** is answered A; both
+recommendations are "ignore the column", which this probe can only reinforce.
+It becomes blocking only if either is answered B or C.
+
+### E7 — Delivery when a mailbox and an alias share an address
+
+Create both for the same address and deliver to it. Which wins, or whether
+delivery fails, is the empirical half of **Q4**'s collision question.
+
+**Blocks** nothing if Q4 is answered A or C.
+
+**Resolves** — the observable half of `aliases.md` OQ-AL-03.
+
+### E8 — What `domain.active = 0` actually stops
+
+A confirmation, not an open choice. **D9** decided that disabling writes
 `domain.active = 0` and nothing else, which assumes the mail server honours the
-flag. This probe confirms or refutes that assumption. Set it on a test domain,
-leaving every account's own `active` at `1` — the state D9 leaves them in — then
-attempt authentication and delivery for an account inside it, and read the mail
-log:
+flag. Set it on a test domain, leaving every account's own `active` at `1` — the
+state D9 leaves them in — then:
 
 ```bash
 sudo doveadm auth test user@disabled.example 'pw'
 echo test | sendmail user@disabled.example
 ```
 
-Both must be refused. If they are, D9 stands: disabling is one UPDATE and is
-reversible. If either succeeds, **D9 has to be revisited** — a "disabled" domain
-that still receives mail, or still lets its users log in, is worse than no
-disable action at all, and the alternative (deactivating every account) brings
-back the state-loss problem D9 declined to build a mechanism for.
+Both must be refused. If either succeeds, **D9 has to be revisited**: a
+"disabled" domain that still receives mail, or still lets its users sign in, is
+worse than having no disable action at all. Repeat for an alias domain whose
+target is disabled.
 
-Also repeat for an alias domain whose target is disabled.
+**Blocks** confidence in an already-shipped feature — the disable and enable
+endpoints exist and are tested against the database, not against the mail
+server.
 
 **Resolves** — `domains.md` OQ-DOM-03; `alias-domains.md` OQ-AD-06.
 
-### E7 — Is `domain_admins.active` read by anything?
-
-Set `active = 0` on a real per-domain grant, then sign in to iRedAdmin and check
-whether the domain is still administrable. Repeat with a past `expired`.
-Empirical half of **D4**.
-
-Separately and identically for `forwardings.active = 0` on an `is_list` row:
-disable a member and send mail to the alias — does the member still receive it?
-(`aliases.md` OQ-AL-07.)
-
-### E8 — Delivery when a mailbox and an alias share an address
-
-Create both for the same address and deliver to it. Which one wins, or whether
-delivery fails, is the empirical half of **D5** (`aliases.md` OQ-AL-03).
-
 ### E9 — Values of `alias.accesspolicy`
 
-Free-text `VARCHAR(30)` with nothing constraining it
-(`schema-type-matrix.md`, Unverified 10).
+Free-text `VARCHAR(30)` with nothing constraining it.
 
 ```sql
 SELECT DISTINCT accesspolicy, COUNT(*) FROM vmail.alias GROUP BY accesspolicy;
 ```
 
 Then create an alias through iRedAdmin and see what it writes, and whether
-Postfix or iRedAPD honours the value. Until answered, Mailward must not present
-a fixed list (`aliases.md` BR-11).
+Postfix or iRedAPD honours the value.
+
+**Blocks** presenting any fixed list of values (`aliases.md` BR-11 forbids one
+until this is answered). It does not block the feature.
 
 **Resolves** — `aliases.md` OQ-AL-01.
 
@@ -521,325 +829,162 @@ postconf -M | grep -i dovecot
 ```
 
 The shipped default is `dovecot`; there is nothing to validate against beyond
-length until the real set is known.
+length until the real set is known. The domains feature ships with free-text
+validation on this column today.
 
 **Resolves** — `domains.md` OQ-DOM-10.
 
 ---
 
-## Contradictions inside the specification
+## Contradictions
 
-Two documents Mailward already owns disagree. These are not open questions to be
-researched — one of the two statements is already wrong and has to be corrected.
+Two documents Mailward already owns disagreeing. These are not questions to
+research — one of the two statements is already wrong and has to be corrected.
 
 ### C1 — `mailbox.quota`: bytes or mebibytes
 
 | Side | Says | Citation |
 |---|---|---|
-| Mailward | bytes | `02-domain.md` §4 ("`quota` (bytes)") and §2; `dashboard.md` BR-05; `mailboxes.md` BR-13 |
-| iRedMail | mebibytes | Dovecot's shipped `user_query` builds `CONCAT('*:bytes=', mailbox.quota*1048576)` — `open-questions-research.md`, OQ-03, established fact 1 |
+| Mailward | bytes for `domain.maxquota`, unsettled for `mailbox.quota` | `02-domain.md` §2 ("`maxquota` — Max quota for the domain, bytes") and §4 ("The unit of `quota` is **not settled**"); `domains.md` BR-06 ("The domain quota is `domain.maxquota`, in bytes") and its `POST /domains` field table ("`maxquota` — required integer ≥ 0, bytes") |
+| iRedMail | mebibytes for `mailbox.quota` | Dovecot's shipped `user_query` builds `CONCAT('*:bytes=', mailbox.quota*1048576)` — `open-questions-research.md` OQ-03, established fact 1 |
 
 **What breaks.** The two readings differ by a factor of 1,048,576 and both render
-a plausible-looking number. Written as bytes when Dovecot reads MiB, a "1 GB"
-mailbox becomes effectively unlimited; the reverse makes every mailbox
-unusable. Every quota figure on the dashboard is wrong by the same factor, and
-`domain.maxquota` (documented as bytes, `02-domain.md` §2) may or may not share
-the unit. **No quota value may be written until this is settled** — resolve with
-**E4**. Now also tracked as `00-overview.md` OQ-05.
+a plausible number on screen. Written as bytes where Dovecot reads MiB, a "1 GB"
+mailbox becomes effectively unlimited; the reverse makes every mailbox unusable
+on its first message. Every quota figure on the dashboard is wrong by the same
+factor. **`domain.maxquota` is separately asserted as bytes and may not share
+the unit** — the domains feature already validates and stores it on that
+assumption, so if `maxquota` turns out to be MiB too, shipped data is wrong.
+Resolve with **E4**; then correct `02-domain.md` §2 and §4, `domains.md` BR-06,
+`dashboard.md` BR-05 and `mailboxes.md` BR-13 in one pass. **No quota value may
+be written until this is settled**, and **Q15** cannot be implemented before it.
 
-### C2 — Hard visible failure vs identical response for every failed login
+### C2 — Hard, visible failure vs indistinguishable from every other denial
 
 | Side | Says | Citation |
 |---|---|---|
-| ADR-0007 | A scheme Mailward cannot verify is "a hard failure at login, never a silent denial" | `0007-configurable-maildir-and-password-scheme.md`, Decision; `authentication.md` BR-12 |
-| Architecture | Unknown address, wrong password, inactive, expired and insufficient privilege are indistinguishable — same status, same body, **same timing** | `01-architecture.md` §5; `authentication.md` BR-07 |
+| ADR-0007 | A scheme Mailward cannot verify is "a hard failure at login, never a silent denial" | `0007-configurable-maildir-and-password-scheme.md`, Decision; restated as `authentication.md` BR-12 |
+| Authentication feature | Unknown address, wrong password, inactive, expired and insufficient privilege are indistinguishable — same status, same body, same redirect and **the same observable timing** | `authentication.md` BR-07 and AC-03, from `01-architecture.md` §5 ("an identical response for 'unknown address' and 'wrong password'") |
 
 **What breaks.** Telling an anonymous caller "this account uses a scheme we
 cannot verify" confirms the account exists, which is precisely the oracle
-`01-architecture.md` §5 exists to close. Obeying BR-07 instead makes the
-unverifiable account indistinguishable from a wrong password — the silent denial
-0007 forbids. Held open as `authentication.md` OQ-AUTH-01; the likely resolution
-is to scope "visible" to operator-visible surfaces (log, health check, banner
-for signed-in administrators) and say so in 0007, but that is a decision, not a
-reading.
+`01-architecture.md` §5 exists to close — and the login form is a password
+oracle against every real mailbox on the server, not only against
+administrators. Obeying BR-07 instead makes the unverifiable account
+indistinguishable from a wrong password, which is the silent denial `0007`
+forbids, and the account stays broken with nobody told. The code has already
+chosen BR-07's side: `AuthenticateAdministrator` logs at error level and returns
+the generic denial. **Resolved by answering Q12**; whichever option wins, one of
+the two documents must be edited rather than left standing.
 
-### C3 — `mailbox.maildir`: absolute or relative
-
-| Side | Says | Citation |
-|---|---|---|
-| Mailward | absolute path | `02-domain.md` §4 ("`maildir` (absolute path)"); `00-overview.md` §6 glossary ("Absolute filesystem path of an account's mail storage") |
-| iRedMail | the relative tail below `storagebasedirectory`/`storagenode` | Dovecot's `user_query` concatenates all three; the official migration guide gives the same `CONCAT(...)` — `open-questions-research.md`, OQ-03, established fact 1 |
-
-The confusion is traceable: `deleted_mailboxes.maildir` **is** annotated
-"Absolute path of user's mailbox" in the same schema file, and
-`mailbox.maildir` is not annotated at all.
-
-**What breaks.** If Mailward writes an absolute path into `mailbox.maildir`,
-Dovecot resolves `/var/vmail/vmail1//var/vmail/...` and the account cannot
-receive mail. In the other direction, writing the relative value straight into
-`deleted_mailboxes.maildir` means iRedMail's removal cron deletes nothing — or
-resolves a path nobody intended (`mailboxes.md` OQ-M3). The three columns must
-be concatenated on the deletion path and not on the creation path, or the
-reverse. Resolve with **E2**; `02-domain.md` §4 and the glossary are corrected
-afterwards. Further corroboration for the relative reading:
-`current-iredmail-behaviour.md` Q1 fact 1 shows the userdb query returning
-`home` as that same three-column concatenation on both Dovecot paths.
-
-### C4 — Every write is audited vs no transaction spans both databases
+### C3 — Unprefixed hashes: accepted by the mail server, or not
 
 | Side | Says | Citation |
 |---|---|---|
-| Authorization policy | "Every write is recorded in `audit_log`" | `docs/policies/authorization.md` §7; `00-overview.md` §5; `audit-log.md` BR-01 |
-| Architecture | No transaction may span both databases; the `vmail` write is the last commit | `01-architecture.md` §3; `audit-log.md` BR-15 |
+| Authentication feature | The verifier **must** accept values with no `{SCHEME}` prefix, because the mail server interprets them with `default_pass_scheme = CRYPT` and therefore accepts them — "a verifier that requires a prefix rejects accounts the mail server itself authenticates" | `authentication.md` BR-10 and AC-09 |
+| Current behaviour | True only on the Dovecot 2.3 path. On the 2.4 path iRedMail sets no default scheme at all, and Dovecot's own default is `PLAIN` below 2.4.3 — Debian 13 ships 2.4.1, Ubuntu 26.04 ships 2.4.2. An unprefixed hash there is compared as **cleartext** and fails. 2.4 additionally disables weak schemes by default, so prefixed `{CRYPT}$1$…` and `{PLAIN-MD5}…` rows stop authenticating too | `current-iredmail-behaviour.md` Q2, facts 6 and 7 |
 
-**What breaks.** The two cannot both hold. Writing the entry first records
-changes that may never have been committed; writing it last means a crash
-between the two leaves a completed `vmail` write with no entry. One failure mode
-must be chosen and stated, because it is exactly what determines the log's
-evidentiary value — the property `audit-log.md` claims for it. Held as
-`audit-log.md` OQ-AUD-03.
+**What breaks.** BR-10 as written makes Mailward more permissive than the mail
+server on exactly the installs where the difference matters. An administrator
+signs in to the panel with a password that no longer collects their own mail —
+inverting the product's central premise that panel identity *is* mail identity,
+and hiding a broken account instead of surfacing it. The verifier already
+implements BR-10 as written, including the unprefixed fallback, so this is live
+today. BR-10 and AC-09 need a Dovecot-generation condition, or the behaviour has
+to be stated as a deliberate divergence with the health check of **Q12** behind
+it. Note the interaction with C2: an account whose scheme the *server* has
+disabled is a third failure category, distinct from both "wrong password" and
+"Mailward cannot verify".
+
+### C4 — `maildir` in the glossary vs in the domain model
+
+| Side | Says | Citation |
+|---|---|---|
+| Glossary | "Maildir — Absolute filesystem path of an account's mail storage" | `00-overview.md` §6 |
+| Domain model, corrected | "**`maildir` is a relative tail, not an absolute path.** Dovecot's shipped `user_query` builds the real location by concatenating `storagebasedirectory`, `storagenode` and `maildir`. Only `deleted_mailboxes.maildir` is absolute" | `02-domain.md` §4; `current-iredmail-behaviour.md` Q1, fact 1 |
+
+**What breaks.** The domain model was corrected and the glossary was not. If a
+reader takes the glossary at face value and writes an absolute path into
+`mailbox.maildir`, Dovecot resolves `/var/vmail/vmail1//var/vmail/…` and the
+account receives no mail; in the other direction, writing the relative value
+straight into `deleted_mailboxes.maildir` makes iRedMail's removal cron delete
+nothing, or resolve a path nobody intended. The deletion path already
+concatenates the three columns. Correct `00-overview.md` §6 to match
+`02-domain.md` §4, and confirm the derivation with **E2**.
 
 ### C5 — Detection preferred, but nothing detectable over the only connection
 
 | Side | Says | Citation |
 |---|---|---|
-| ADR-0007 | "Where the value can be **detected** from the running server rather than entered by hand, detection is preferred" | `0007`, Decision |
+| ADR-0007 | "Where the value can be **detected** from the running server rather than entered by hand, detection is preferred and the stored value is the override" | `0007`, Decision |
 | Architecture | Mailward has SQL connections only — `vmail`, `iredapd`, `amavisd` — and runs unprivileged | `01-architecture.md` §3, §6 |
-| Research | There is no configured-scheme column in `vmail`; `DEFAULT_PASSWORD_SCHEME` is an installer shell variable and the generating scheme lives in iRedAdmin's Python settings. Storage base directory and node likewise come from `conf/global` | `open-questions-research.md`, OQ-04 established fact 8; OQ-03 established fact 4 |
+| Research | There is no configured-scheme column in `vmail`; `DEFAULT_PASSWORD_SCHEME` is an installer shell variable and the generating scheme lives in iRedAdmin's Python settings. Storage base directory and node likewise come from `conf/global` | `open-questions-research.md` OQ-04 established fact 8; OQ-03 established fact 4 |
 
-**What breaks.** Real detection would require reading files or shelling out to
+**What breaks.** Real detection would mean reading files or shelling out to
 `doveadm`, which makes a runtime dependency out of exactly the thing
 `01-architecture.md` §6 says the product does not need. `01-architecture.md` §5
 compounds it by saying the hasher generates "the scheme the server is configured
-for", as though the server told us. The honest fallbacks are inference from data
-Mailward can already see (the modal `{SCHEME}` prefix in `mailbox.password`, the
-existing `storagebasedirectory`/`storagenode` values) or plain operator
-configuration — but 0007 currently promises more than the architecture permits.
+for", as though the server had told us. The honest fallbacks are inference from
+data Mailward can already see — the modal `{SCHEME}` prefix in
+`mailbox.password`, the existing `storagebasedirectory`/`storagenode` values —
+or plain operator configuration, which is what the code does today
+(`MAILWARD_PASSWORD_SCHEME`, defaulting to `SSHA512`, with no detection at all).
+`0007` currently promises more than the architecture permits and should be
+narrowed to say "inferred from data on the `vmail` connection, or configured".
 
-### C7 — Unprefixed hashes: accepted by the mail server, or not
-
-| Side | Says | Citation |
-|---|---|---|
-| Authentication feature | The verifier **must** accept values with no `{SCHEME}` prefix, because the mail server interprets them with `default_pass_scheme = CRYPT` and therefore accepts them — "a verifier that requires a prefix rejects accounts the mail server itself authenticates" | `authentication.md` BR-10 and AC-09, citing `open-questions-research.md` OQ-04 established fact 3 |
-| Current behaviour | True only on the Dovecot 2.3 path. On the 2.4 path iRedMail sets no default scheme at all, and Dovecot's own default is `PLAIN` below 2.4.3 — Debian 13 ships 2.4.1 and Ubuntu 26.04 ships 2.4.2. An unprefixed hash there is compared as **cleartext** and fails. 2.4 additionally disables weak schemes by default, so prefixed `{CRYPT}$1$…` and `{PLAIN-MD5}…` rows stop authenticating too | `current-iredmail-behaviour.md` Q2, facts 6 and 7 |
-
-**What breaks.** BR-10 as written makes Mailward more permissive than the mail
-server on exactly the installs where the difference matters. An administrator
-would sign in to the panel with a password that no longer collects their own
-mail — inverting the product's central premise that panel identity *is* mail
-identity, and hiding a broken account instead of surfacing it. BR-10 and AC-09
-need a Dovecot-generation condition, or the behaviour has to be stated as a
-deliberate divergence with a health check behind it. Note this also interacts
-with C2: an account whose scheme the *server* has disabled is a third failure
-category, distinct from both "wrong password" and "Mailward cannot verify".
-
-### C8 — Why addresses are canonicalised
-
-| Side | Says | Citation |
-|---|---|---|
-| Domain model | "iRedMail's shipped Dovecot config does **not** set `auth_username_format`, so **authentication does not normalise anything**" | `02-domain.md` §1.1 |
-| ADR-0005, corrected 2026-08-15 | `auth_username_format` is indeed never set, but its **default lowercases** in both generations (`%Lu` in 2.3, `%{user \| lower}` in 2.4), and the 2.4 path lowercases again inside the SQL. The username never reaches the query as typed | `0005-lowercase-canonical-addresses.md`, "Correction — 2026-08-15"; `current-iredmail-behaviour.md` Q3 |
-
-**What breaks.** Nothing about the decision — `0005` stands either way. What
-breaks is the severity everything downstream assumes. Under `02-domain.md` §1.1
-a mixed-case row on PostgreSQL is a usability wart the user can work around by
-typing the exact casing. Under the corrected reading the lookup key is *always*
-lower case, so the row can never be matched: the passdb lookup fails, the userdb
-lookup fails with it, and the account has no home and receives no mail. **A
-mixed-case row on PostgreSQL is a dead account.** `02-domain.md` §1.1 is
-uncorrected and is the version most feature documents cite; the health check
-`0005` calls "worth building" is more urgent than any feature document
-currently treats it.
-
-### C9 — minor: the `maillists` limit
+### C6 — The `maillists` limit — minor, documentation debt
 
 `02-domain.md` §2 makes all three per-domain limits enforceable and requires all
 three to surface on the dashboard. `domains.md` BR-05 declines to enforce
 `maillists` and `dashboard.md` Out of Scope declines to surface it, both because
 mailing lists are unmodelled in v1. Both narrowings are declared openly, so this
-is a documentation debt rather than a live risk — but `02-domain.md` §2 still
-states a BR that no feature implements.
+is documentation debt rather than a live risk — but `02-domain.md` §2 still
+states a rule no feature implements.
+
+### Closed since the previous sheet
+
+- **Every write is audited vs no transaction spans both databases** — closed by
+  the OQ-AUD-03 decision and implemented: the entry is written after the `vmail`
+  commit, and a crash between the two loses an entry rather than inventing one.
+- **Why addresses are canonicalised** — closed: `02-domain.md` §1.1 has been
+  corrected. Dovecot's `auth_username_format` default lowercases in both
+  generations, so a mixed-case row on PostgreSQL is a dead account, not a
+  usability wart. This raises the priority of the health check in **Q12**.
 
 ---
 
-## Product decisions
+## I will decide these unless you object
 
-Genuine "what should the product do" choices, no technical blocker. Grouped by
-theme; the long tail.
+Cosmetic or internal, no product consequence.
 
-### v1 scope gates
-
-- **P1 — Is 2FA in v1?** (`authentication.md` OQ-AUTH-03) `two_factor_secrets`
-  exists in `02-domain.md` §13 but 2FA is not in the `00-overview.md` §5 scope
-  list. In v1 it adds a state between step 2 and `authenticated`, plus enrolment
-  contracts; out of v1 it removes a sub-question from D1. Also decide whether it
-  is per-administrator or instance-enforced.
-- **P2 — Which of the ~30 `enable*` toggles does the form expose?**
-  (`mailboxes.md` OQ-M8) The scope line says only "enabled services". Decide the
-  exposed subset and whether any move together — in particular whether
-  `enablesogo` gates the three SOGo `'y'`/`'n'` columns.
-- **P3 — Is per-row enable/disable exposed for forwardings and alias members?**
-  (`mailbox-aliases-forwardings.md` OQ-A6, `aliases.md` OQ-AL-07) Create/delete
-  only is the smaller surface. Exposing `active` is only meaningful if E7 shows
-  something honours it.
-- **P4 — Is renaming supported?** (`domains.md` OQ-DOM-08,
-  `alias-domains.md` OQ-AD-02) `domain.domain` is denormalised into seven other
-  tables with no foreign key, so a rename is a multi-table rewrite. `aliases.md`
-  already puts alias renaming out of scope — the same answer for domains and
-  alias domains would be consistent.
-
-### Limits and validation
-
-- **P5 — What does `domain.maxquota` constrain?** (`mailboxes.md` OQ-M6) An
-  individual mailbox's quota, the sum of the domain's quotas, or nothing.
-  `02-domain.md` §2 describes it without giving it a rule; `dashboard.md`
-  already excludes it from the dashboard, so only the mailbox-side rule is open.
-- **P6 — Must the `domain.mailboxes` limit close the count-then-insert race?**
-  (`mailboxes.md` OQ-M7) `docs/policies/authorization.md` §5 requires a
-  same-transaction check for the last-global-admin case only. Either the same
-  treatment here, or accept that two concurrent creates can exceed a limit by one.
-- **P7 — Is a forwarding target validated beyond address format?**
-  (`mailbox-aliases-forwardings.md` OQ-A8) Whether a target inside a locally
-  hosted domain must be an existing account, and whether self-referencing or
-  circular targets between two local mailboxes are rejected.
-- **P8 — May an alias member be outside the actor's domains, or off the server?**
-  (`aliases.md` OQ-AL-04) The scope rule governs the resource's domain and says
-  nothing about a destination. Restricting it makes external distribution lists
-  impossible; not restricting it lets a domain admin forward mail anywhere.
-- **P9 — Must a standalone alias have at least one member?**
-  (`aliases.md` OQ-AL-08) Decides whether a member-less alias is creatable and
-  whether removing the last member is refused. A member-less alias is a black
-  hole for mail sent to it.
-
-### Audit log shape
-
-- **P10 — Does "every write" include Mailward's own tables?**
-  (`audit-log.md` OQ-AUD-02) Read literally it covers `sessions`, `cache` and
-  `jobs`, which makes the log unusable. Draw the line explicitly — most likely
-  `vmail` writes plus `settings`, `panel_profiles` and `two_factor_secrets`.
-- **P11 — One entry per business operation, or per row written?**
-  (`audit-log.md` OQ-AUD-04) Creating a mailbox writes two `vmail` rows;
-  deleting one writes three plus Mailward-side cleanups. Per operation reads
-  better; per row is more faithful.
-- **P12 — Are failed writes recorded?** (`audit-log.md` OQ-AUD-05) Validation
-  rejections, driver errors, limit refusals, and a change blocked by BR-A01.
-  An attempt to delete the last global admin is arguably the single most
-  interesting thing the log could hold.
-- **P13 — Is a successful sign-in recorded?** (`authentication.md` OQ-AUTH-06)
-  It is neither a `vmail` write nor a failure, so §7 does not mandate it — yet it
-  is what an audit reader looks for beside the failures. It does write
-  `panel_profiles`, which makes P10's line matter here.
-- **P14 — What actor and IP are recorded for a console write?**
-  (`audit-log.md` OQ-AUD-08, `domain-admins.md` OQ-DA-07)
-  `mailward:promote` has no session and no IP, and is the documented escape
-  hatch precisely for the moments an audit reader most wants visibility. Decide
-  the sentinel actor, or that it is not audited.
-- **P15 — Is the log ever pruned, archived or capped?**
-  (`audit-log.md` OQ-AUD-06) It is append-only with no retention rule, so it
-  grows without bound; any pruning rule is the one operation that contradicts
-  BR-05.
-- **P16 — Is append-only enforced at the database?** (`audit-log.md` OQ-AUD-07)
-  `01-architecture.md` §3 uses grant-level enforcement for `vmail`, but that
-  connection also runs migrations, so the technique does not transfer unchanged.
-
-### Administrator lifecycle
-
-- **P17 — What does "demote" write?** (`domain-admins.md` OQ-DA-02) Removing the
-  `domain_admins` rows and leaving `isadmin = 1` produces the BR-A03 state — logs
-  in, empty screen. Clearing `isadmin` removes panel access entirely. Both are
-  consistent with the policy.
-- **P18 — What does `mailward:promote <address>` do without `--global`?**
-  (`domain-admins.md` OQ-DA-03) BR-A04 documents only the `--global` form.
-  Decide whether the command also grants per-domain administration and with what
-  argument, or whether the flag is mandatory.
-- **P19 — What does Mailward do when it finds the two global-admin
-  representations drifted?** (`domain-admins.md` OQ-DA-08) Repair silently,
-  report it, or ignore it. Moot if E1 refutes the sentinel row entirely.
-
-### Login hardening
-
-- **P20 — Rate-limit thresholds, lockout duration and key.**
-  (`authentication.md` OQ-AUTH-02) "Aggressive" and "stricter than an ordinary
-  application login" are the only guidance. Keying by submitted address is
-  itself an existence oracle if the limits differ per key; keying by IP alone is
-  weak behind a proxy. Numbers are needed, not adjectives.
-- **P21 — Which Mailward table holds the remember-me token?**
-  (`authentication.md` OQ-AUTH-04) `01-architecture.md` §5 requires it in
-  Mailward's database keyed by address; `02-domain.md` §13 enumerates no such
-  entity. A column on `panel_profiles` and a dedicated table are both consistent.
-
-### Dashboard and presentation
-
-- **P22 — Do account counts include inactive and expired rows?**
-  (`dashboard.md` OQ-DASH-02) And is the breakdown shown. The same answer decides
-  whether a disabled domain contributes to the domain count.
-- **P23 — What is "last login", and what makes an account dormant?**
-  (`dashboard.md` OQ-DASH-04) `last_login` has three columns (`imap`, `pop3`,
-  `lda`) — the greatest of the three, or one nominated protocol — and the
-  dormancy threshold is undefined.
-- **P24 — Are dashboard figures computed per request, or cached with a stated
-  staleness?** (`dashboard.md` OQ-DASH-07) Full-table aggregates per page load
-  are the one place this product's read pattern stops being trivially cheap.
-- **P25 — How is a domain whose `expired` is already past presented?**
-  (`domains.md` OQ-DOM-11) `docs/policies/authorization.md` §6 defines expiry
-  only for the login gate. v1 offers no transition into or out of it, so the
-  question is purely presentational — badge, filter, or nothing.
-
----
-
-## Already answered
-
-Raised as an open question in one feature document, but decided elsewhere. Each
-of these can be closed by editing the owning document, without a decision.
-
-- **A1 — `mailbox-aliases-forwardings.md` OQ-A3** ("may the self-referencing row
-  be absent or inactive, to express *forward without keeping a local copy*").
-  Decided: no. `02-domain.md` §5 makes the row an invariant of every mailbox —
-  "a mailbox created without this row appears correct in every listing and does
-  not receive mail" — and `mailboxes.md` BR-04 and this document's own BR-06
-  restate it. The feature is therefore not offerable by removing or deactivating
-  that row; whether some *other* mechanism should express it is a new product
-  question, not this one.
-- **A2 — `domain-admins.md` OQ-DA-01**, partly. BR-11 of the same document
-  already decides that setting or clearing `mailbox.isglobaladmin` is
-  global-admin-only, because `docs/policies/authorization.md` §2 provides no
-  domain under which a domain admin could be authorized for it. Only the
-  per-domain assignment half remains open (D3).
-- **A3 — `domain-admins.md` OQ-DA-04 and `aliases.md` OQ-AL-07**, for v1
-  behaviour. BR-10 of `domain-admins.md` already fixes it: Mailward writes
-  `active = 1` and offers no disable action until the semantics are known.
-  `aliases.md` States does the same for members ("v1 has no third member
-  state"). The semantic question (D4, E7) is open; the v1 behaviour is not.
-- **A4 — Renaming an alias account.** `aliases.md` Out of Scope decides it
-  outright: `address` is the primary key and is referenced by every member row,
-  and nothing decides how a rename propagates. Only the domain and alias-domain
-  cases remain (P4).
-- **A5 — `mailboxes.md` OQ-M6**, partly. `dashboard.md` Out of Scope already
-  removes `domain.maxquota` from the dashboard as a limit figure, so only the
-  mailbox-side enforcement rule is open (P5).
-- **A6 — `dashboard.md` OQ-DASH-03**, partly. The same document already narrows
-  "domains at their limit" to the two computable limits, excluding `maillists`
-  because mailing lists are unmodelled. Only the alias half is open (D2).
-- **A7 — `aliases.md` OQ-AL-04**, for the authorization half.
-  `mailbox-aliases-forwardings.md` BR-02 decides that the destination domain of
-  a forwarding plays no part in the authorization decision — the owning
-  resource's domain does. Only "may a member be outside the server entirely" is
-  a product choice (P8).
-- **A8 — `mailboxes.md` OQ-M2** ("does Dovecot auto-create the maildir on first
-  delivery"), the question `open-questions-research.md` called the single most
-  consequential unknown in the specification. Decided:
-  `current-iredmail-behaviour.md` Q1 — **creating a row in `mailbox` is
-  sufficient**, no filesystem step is required, and `01-architecture.md` §6
-  stands as written. The strongest evidence is that iRedMail's own
-  `tools/create_mail_user_SQL.sh` emits exactly two `INSERT`s and contains no
-  `mkdir`, `chown` or `chmod`. Mailbox creation therefore needs no privileged
-  helper, and `mailboxes.md` can drop OQ-M2 once the probe in E2 corroborates
-  it. **Two consequences the feature document must absorb:** the directory does
-  not exist between account creation and the first delivery or IMAP/POP3 login,
-  so anything reading the filesystem to confirm an account must treat absence as
-  normal; and the mail tree is `vmail:vmail` mode `0700`, so an unprivileged
-  PHP-FPM worker could not create it even if it wanted to.
-- **A9 — `domains.md` OQ-DOM-05**, for its architectural half. It was blocked on
-  OQ-03 becoming a privileged-helper problem; A8 closes that branch. What
-  remains of OQ-DOM-05 is the value written into `deleted_mailboxes.maildir`
-  (C3, E2), which is a string question, not an architecture question.
+- **`00-overview.md` §6 glossary, `maildir`** (C4) — rewrite to match
+  `02-domain.md` §4: relative tail, absolute only in `deleted_mailboxes`.
+- **`02-domain.md` §2, `maillists`** (C6) — add the sentence that says the limit
+  is stored and not enforced in v1, so the narrowing is stated once at the top
+  rather than three times downstream.
+- **`mailbox-aliases-forwardings.md` OQ-A3** ("may the self-referencing row be
+  absent or inactive, to express *forward without keeping a local copy*") —
+  close it as already decided. `02-domain.md` §5 makes the row an invariant of
+  every mailbox and BR-06 restates it. Whether some *other* mechanism should
+  express that behaviour is a new product question, not this one.
+- **`audit-log.md` OQ-AUD-07, append-only enforcement** — convention plus a
+  model guard, not a database grant. `01-architecture.md` §3 uses grants for
+  `vmail`, but that technique does not transfer: the same connection runs
+  migrations. `AuditEntry` gets the same immutability guard `DeletedMailbox`
+  already has — `update()` and `delete()` throw.
+- **`authentication.md` OQ-AUTH-04, the remember-me store** — keep it deferred,
+  which is what the code already does deliberately
+  (`Mailbox::getRememberTokenName()` returns `''`, so no token is ever
+  persisted). Remove the vestigial `remember` field from the login request. If
+  persistent sessions return, they get a dedicated table keyed by address, not a
+  column on `panel_profiles`.
+- **`domains.md` OQ-DOM-11, presenting an expired domain** — a badge in the
+  listing and on the detail page, and a filter. No transition into or out of the
+  state, per `domains.md` BR-09.
+- **`dashboard.md` OQ-DASH-07, caching the figures** — computed per request. The
+  aggregates are indexed counts and sums; add caching when a real install makes
+  it necessary, with the staleness stated on the screen.
+- **Restricting the generative password scheme** — the configured scheme must be
+  one Mailward can also verify, and must not be `PLAIN`, `CLEARTEXT` or
+  `PLAIN-MD5`. `MAILWARD_PASSWORD_SCHEME` is currently absent from
+  `.env.example` and unguarded; both get fixed.

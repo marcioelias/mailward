@@ -35,4 +35,15 @@ interface Scheme
      * Produce a new hash, without the `{SCHEME}` prefix.
      */
     public function hash(string $plain): string;
+
+    /**
+     * Whether Mailward may be *configured* to write this scheme.
+     *
+     * Verification is always exhaustive — a legacy account must be able to
+     * sign in whatever its password looks like. Generation is not: an
+     * unsalted digest or a cleartext password is something Mailward will read
+     * but never create, because writing one would weaken an account that was
+     * previously fine.
+     */
+    public function isSafeToGenerate(): bool;
 }

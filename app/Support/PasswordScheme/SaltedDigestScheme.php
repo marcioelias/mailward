@@ -54,4 +54,9 @@ final class SaltedDigestScheme implements Scheme
 
         return base64_encode(hash($this->algorithm, $plain.$salt, true).$salt);
     }
+
+    public function isSafeToGenerate(): bool
+    {
+        return true;
+    }
 }

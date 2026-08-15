@@ -40,4 +40,9 @@ final class PlainDigestScheme implements Scheme
     {
         return hash($this->algorithm, $plain);
     }
+
+    public function isSafeToGenerate(): bool
+    {
+        return false;
+    }
 }

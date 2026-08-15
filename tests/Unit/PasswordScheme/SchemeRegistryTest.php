@@ -146,3 +146,12 @@ describe('generation', function () {
             ->and(registry('SSHA512')->isCurrent('$2y$10$bare'))->toBeFalse();
     });
 });
+
+it('refuses to be configured to generate an unsalted digest', function () {
+    // Verifying PLAIN-MD5 is mandatory — such rows exist and their owners must
+    // be able to sign in. Writing one is not: it would leave an account weaker
+    // than it was before Mailward touched it.
+    expect(registry()->verify('hunter2', '{PLAIN-MD5}'.md5('hunter2')))->toBeTrue()
+        ->and(fn () => registry('PLAIN-MD5')->hash('hunter2'))
+        ->toThrow(CannotGeneratePassword::class);
+});
