@@ -1,0 +1,149 @@
+<script setup lang="ts">
+import { Head, Link, router, useForm } from '@inertiajs/vue3'
+import { MeAlert, MeBadge, MeButton, MeInput } from '@my-eyes/vue'
+import { ref, watch } from 'vue'
+import AppLayout from '@/layouts/AppLayout.vue'
+
+interface DomainRow {
+    domain: string
+    description: string | null
+    active: boolean
+    backupmx: boolean
+    limits: { aliases: number; mailboxes: number; maillists: number }
+    counts: { mailboxes: number; aliases: number; aliasDomains: number }
+}
+
+interface Paginated<T> {
+    data: T[]
+    links: { url: string | null; label: string; active: boolean }[]
+    total: number
+}
+
+const props = defineProps<{
+    domains: Paginated<DomainRow>
+    filters: { search: string }
+    can: { create: boolean }
+    status?: string
+}>()
+
+const search = ref(props.filters.search)
+
+let debounce: ReturnType<typeof setTimeout>
+watch(search, (value) => {
+    clearTimeout(debounce)
+    debounce = setTimeout(() => {
+        router.get('/domains', { search: value }, { preserveState: true, replace: true })
+    }, 350)
+})
+
+/** `0` means unlimited, not "none allowed" (docs/02-domain.md §2). */
+const limit = (value: number): string => (value === 0 ? '∞' : String(value))
+
+const atLimit = (used: number, max: number): boolean => max > 0 && used >= max
+
+const toggle = useForm({ active: false })
+
+const setActive = (row: DomainRow): void => {
+    toggle.active = !row.active
+    toggle.post(`/domains/${row.domain}/active`, { preserveScroll: true })
+}
+
+const destroy = (row: DomainRow): void => {
+    const warning =
+        `Delete ${row.domain}?\n\n` +
+        `This also deletes ${row.counts.mailboxes} mailbox(es), ` +
+        `${row.counts.aliases} alias(es) and every forwarding in the domain. ` +
+        `Mail files are removed by iRedMail's own cron afterwards.\n\nThis cannot be undone.`
+
+    if (window.confirm(warning)) {
+        router.delete(`/domains/${row.domain}`)
+    }
+}
+</script>
+
+<template>
+    <Head title="Domains" />
+
+    <AppLayout title="Domains" subtitle="Mail domains this server accepts mail for.">
+        <div class="me-stack">
+            <MeAlert v-if="status" variant="success">{{ status }}</MeAlert>
+
+            <div class="me-row me-row--between">
+                <MeInput v-model="search" type="search" placeholder="Search domains…" />
+
+                <Link v-if="can.create" href="/domains/create" class="me-btn me-btn--primary">
+                    Add domain
+                </Link>
+            </div>
+
+            <div v-if="!domains.data.length" class="me-empty">
+                <p v-if="filters.search">No domain matches “{{ filters.search }}”.</p>
+                <p v-else>No domains are visible to you.</p>
+            </div>
+
+            <table v-else class="me-table">
+                <thead>
+                    <tr>
+                        <th>Domain</th>
+                        <th>Mailboxes</th>
+                        <th>Aliases</th>
+                        <th>Status</th>
+                        <th class="me-table__cell--end">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr v-for="row in domains.data" :key="row.domain">
+                        <td>
+                            <strong>{{ row.domain }}</strong>
+                            <div v-if="row.description" class="me-hint">{{ row.description }}</div>
+                        </td>
+                        <td>
+                            <span
+                                :class="{ 'me-badge me-badge--warning': atLimit(row.counts.mailboxes, row.limits.mailboxes) }"
+                            >
+                                {{ row.counts.mailboxes }} / {{ limit(row.limits.mailboxes) }}
+                            </span>
+                        </td>
+                        <td>
+                            <span
+                                :class="{ 'me-badge me-badge--warning': atLimit(row.counts.aliases, row.limits.aliases) }"
+                            >
+                                {{ row.counts.aliases }} / {{ limit(row.limits.aliases) }}
+                            </span>
+                        </td>
+                        <td>
+                            <MeBadge :variant="row.active ? 'success' : 'warning'">
+                                {{ row.active ? 'Active' : 'Disabled' }}
+                            </MeBadge>
+                            <MeBadge v-if="row.backupmx" variant="info">Backup MX</MeBadge>
+                        </td>
+                        <td class="me-table__cell--end">
+                            <template v-if="can.create">
+                                <Link :href="`/domains/${row.domain}/edit`" class="me-btn me-btn--ghost me-btn--sm">
+                                    Edit
+                                </Link>
+                                <MeButton variant="ghost" size="sm" @click="setActive(row)">
+                                    {{ row.active ? 'Disable' : 'Enable' }}
+                                </MeButton>
+                                <MeButton variant="ghost" size="sm" @click="destroy(row)">
+                                    Delete
+                                </MeButton>
+                            </template>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <nav v-if="domains.links.length > 3" class="me-pagination">
+                <Link
+                    v-for="link in domains.links"
+                    :key="link.label"
+                    :href="link.url ?? '#'"
+                    class="me-pagination__item"
+                    :aria-current="link.active ? 'page' : undefined"
+                    v-html="link.label"
+                />
+            </nav>
+        </div>
+    </AppLayout>
+</template>

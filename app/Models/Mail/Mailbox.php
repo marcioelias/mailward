@@ -10,11 +10,13 @@ use App\Casts\NeverSetDate;
 use App\Casts\YesNoBoolean;
 use Carbon\CarbonImmutable;
 use Illuminate\Auth\Authenticatable;
+use Illuminate\Contracts\Auth\Access\Authorizable as AuthorizableContract;
 use Illuminate\Contracts\Auth\Authenticatable as AuthenticatableContract;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Foundation\Auth\Access\Authorizable;
 use Illuminate\Support\Carbon;
 
 /**
@@ -93,9 +95,9 @@ use Illuminate\Support\Carbon;
  * @property-read ?LastLogin $lastLogin
  * @property-read Collection<int, Forwarding> $forwardings
  */
-final class Mailbox extends MailModel implements AuthenticatableContract
+final class Mailbox extends MailModel implements AuthenticatableContract, AuthorizableContract
 {
-    use Authenticatable;
+    use Authenticatable, Authorizable;
 
     protected $table = 'mailbox';
 

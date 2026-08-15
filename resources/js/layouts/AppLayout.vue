@@ -13,7 +13,7 @@ interface NavItem {
  * Grows as features land. An entry appears here only once its route exists,
  * so the navigation never offers a screen that is not implemented.
  */
-const navigation: NavItem[] = [];
+const navigation: NavItem[] = [{ label: "Domains", route: "/domains" }];
 
 const page = usePage();
 
