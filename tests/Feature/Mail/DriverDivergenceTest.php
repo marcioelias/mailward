@@ -18,6 +18,13 @@ use Illuminate\Support\Facades\DB;
  * (docs/reference/schema-type-matrix.md).
  */
 beforeEach(function () {
+    /*
+     * These exercise the driver layer, not authorisation, so they act as a
+     * global admin: the domain scope denies everything without an actor, by
+     * design (docs/policies/authorization.md §3).
+     */
+    $this->actingAs(new Mailbox(['username' => 'root@example.test', 'isglobaladmin' => true]));
+
     DB::connection('vmail')->table('mailbox')->delete();
     DB::connection('vmail')->table('domain')->delete();
 });

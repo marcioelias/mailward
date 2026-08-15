@@ -15,14 +15,16 @@ disable, delete; per-domain limits".
 
 | Actor | Interaction |
 |---|---|
-| Global admin | every domain |
-| Domain admin | only the domains assigned to them (`domain_admins`) |
+| Global admin | every domain, and the only actor who may write a `domain` row (BR-19) |
+| Domain admin | sees only the domains assigned to them (`domain_admins`); no write to the domain record itself (BR-20) |
 | Mail user | none — cannot log in (`docs/policies/authorization.md` §1) |
 
 Authorization is `docs/policies/authorization.md` in full: the scope rule (§2),
 enforcement in the query (§3), server-side re-authorization (§4) and audit (§7).
-This feature narrows nothing and adds no role. Which of the operations below a
-domain admin may perform at all is unresolved — see OQ-DOM-01 and OQ-DOM-02.
+This feature adds no role. It narrows the policy in one direction only: every
+write this feature performs is global-admin only (BR-19), so the scope rule
+governs a domain admin's **visibility** here and never grants them a write
+(BR-20).
 
 ## Business Rules
 
@@ -132,6 +134,48 @@ domain admin may perform at all is unresolved — see OQ-DOM-01 and OQ-DOM-02.
   per-domain limit in v1. The count BR-03 checks before an alias account is
   created, and the count BR-04 publishes, are both taken from `alias` alone; no
   count of `forwardings` or `alias_domain` rows enters either.
+- **BR-19** — **Every write to a `domain` row is global-admin only.** Creating,
+  editing, disabling, re-enabling and deleting a domain each require
+  `mailbox.isglobaladmin = 1` (`docs/reference/decisions-needed.md` D8, decided
+  2026-08-15). The scope rule (`docs/policies/authorization.md` §2) cannot
+  authorize any of them: creating a domain adds a name to the mail server's
+  namespace and the domain belongs to nobody at the moment it is created, and
+  deleting one destroys every account inside it through the cascade of BR-16.
+  Neither operation is scoped to a domain the actor already administers, so
+  there is no domain under which a domain admin could be authorized. Refusal
+  keeps the existing shape: a domain admin acting on a domain **in** their scope
+  is refused with `403`, one acting on a domain outside it gets `404` so the
+  scope does not leak existence (Contracts), and both are recorded as
+  authorization failures (`docs/policies/authorization.md` §7). The two
+  form-rendering routes, `GET /domains/create` and `GET /domains/{domain}/edit`,
+  are covered by this rule: they exist only to submit a write.
+- **BR-20** — A domain admin has **visibility** of the domains assigned to them
+  and **no write authority over the domain record itself** (BR-19,
+  `docs/reference/decisions-needed.md` D8, decided 2026-08-15). Their authority
+  covers the *contents* of those domains — mailboxes, aliases, forwardings —
+  which the feature documents owning those tables govern; this document decides
+  nothing about it. Two consequences here: the authorization props this feature
+  sends to the page never enable a create, edit, disable, enable or delete
+  control for a domain admin (`docs/policies/authorization.md` §4, and the prop
+  is UX only — the server refuses regardless); and **no `domain_admins` row is
+  written as a side effect of creating a domain**, for the creator or for anyone
+  else. The creator is always a global admin, who already sees every domain, so
+  the question of whether a creator becomes an administrator of what they just
+  created does not arise. Assigning a domain admin is
+  `docs/features/domain-admins.md`, not this feature.
+- **BR-21** — **Disabling a domain writes `domain.active = 0` and nothing
+  else**, and re-enabling writes `domain.active = 1` and nothing else (BR-10;
+  `docs/reference/decisions-needed.md` D9, decided 2026-08-15). Apart from
+  `modified` (BR-08), the operation writes no other column and no other row:
+  Mailward does not touch the `active` flag of any `mailbox`, `alias`,
+  `forwardings` or `alias_domain` row of that domain. The reason is
+  reversibility. If disabling also deactivated every account, re-enabling could
+  not know which accounts were already inactive beforehand and would switch back
+  on accounts that were meant to stay off; preserving that prior state would
+  mean recording it in Mailward's own database, which is a mechanism nobody has
+  asked for. The operation is therefore genuinely reversible — and it **depends
+  on Postfix and Dovecot honouring the domain-level flag**, which is not
+  confirmed and is held as OQ-DOM-03.
 
 ## Data
 
@@ -189,16 +233,22 @@ never duplicated client-side; a validation failure is an Inertia redirect back
 with the error bag, not a JSON body. Authorization props sent to the page are
 for showing and hiding controls only (`docs/policies/authorization.md` §4).
 
-| Route | Method | Page / effect |
-|---|---|---|
-| `/domains` | GET | `Domains/Index` — paginated, domain-scoped list |
-| `/domains/create` | GET | `Domains/Create` |
-| `/domains` | POST | create |
-| `/domains/{domain}/edit` | GET | `Domains/Edit` |
-| `/domains/{domain}` | PUT | update |
-| `/domains/{domain}/disable` | POST | `active = 0` |
-| `/domains/{domain}/enable` | POST | `active = 1` |
-| `/domains/{domain}` | DELETE | delete |
+| Route | Method | Page / effect | Authorization |
+|---|---|---|---|
+| `/domains` | GET | `Domains/Index` — paginated, domain-scoped list | global admin: every domain; domain admin: their assigned domains only (BR-20) |
+| `/domains/create` | GET | `Domains/Create` | global admin only (BR-19) |
+| `/domains` | POST | create | global admin only (BR-19) |
+| `/domains/{domain}/edit` | GET | `Domains/Edit` | global admin only (BR-19) |
+| `/domains/{domain}` | PUT | update | global admin only (BR-19) |
+| `/domains/{domain}/disable` | POST | `active = 0`, nothing else (BR-21) | global admin only (BR-19) |
+| `/domains/{domain}/enable` | POST | `active = 1`, nothing else (BR-21) | global admin only (BR-19) |
+| `/domains/{domain}` | DELETE | delete | global admin only (BR-19) |
+
+`GET /domains` is the only route in this table a domain admin may reach. On
+every other route the refusal shape is the same (BR-19): `403` when the domain
+is in the actor's scope, `404` when it is not — so a refusal never reveals that
+an unassigned domain exists — and both are recorded as authorization failures
+(`docs/policies/authorization.md` §7).
 
 **`GET /domains`** — inputs: `search` (optional, matched against `domain` and
 `description`), `page`. The domain scope is applied in the query, not after
@@ -220,19 +270,25 @@ counts and flag.
 | `backupmx` | required boolean input, persisted as `1`/`0` (BR-10) |
 | `active` | required boolean input, persisted as `1`/`0` (BR-10) |
 
-Error cases: validation failure → redirect back with errors, nothing written;
-duplicate domain (BR-02) → validation error on `domain`; caller not permitted
-(OQ-DOM-01) → 403, logged as an authorization failure.
+Error cases: caller is not a global admin (BR-19) → 403, nothing written, logged
+as an authorization failure — checked before validation, so a refused caller
+learns nothing from the error bag; validation failure → redirect back with
+errors, nothing written; duplicate domain (BR-02) → validation error on
+`domain`.
 
 **`PUT /domains/{domain}`** — same fields except `domain`, which is not
-updatable in v1 (OQ-DOM-08). Error cases: unknown or out-of-scope domain → 404
-for a domain admin, so the scope does not leak existence; validation failure →
-redirect back with errors; lowering `aliases` or `mailboxes` below the current
+updatable in v1 (OQ-DOM-08). Error cases: caller is not a global admin (BR-19) →
+403 for a domain in their scope, 404 for one outside it; unknown domain → 404,
+so the scope does not leak existence; validation failure → redirect back with
+errors; lowering `aliases` or `mailboxes` below the current
 count is **not** rejected — the limit is checked on account creation (BR-03),
 so the domain simply reports `at_limit` (BR-04).
 
-**`POST /domains/{domain}/disable`**, **`/enable`** — no body. Error cases:
-unknown or out-of-scope domain → 404; not permitted (OQ-DOM-02) → 403.
+**`POST /domains/{domain}/disable`**, **`/enable`** — no body. Each writes
+`domain.active` and `modified` and nothing else; no account inside the domain is
+touched, in either direction (BR-21). Error cases: caller is not a global admin
+(BR-19) → 403 for a domain in their scope, 404 for one outside it; unknown
+domain → 404.
 
 **`DELETE /domains/{domain}`** — no body beyond the confirmation the UI
 requires. Removes the `domain` row, its `domain_admins` rows (BR-13) and every
@@ -240,8 +296,10 @@ dependant enumerated in BR-16, in one `vmail` transaction (BR-14), after the
 Mailward-side cleanup of BR-17. A domain that still owns accounts is **not**
 refused: the cascade empties it. The confirmation the UI requires states how
 many mailboxes, alias accounts and alias domains the cascade will remove. Error
-cases: unknown or out-of-scope domain → 404; not permitted (OQ-DOM-02) → 403; a
-mailbox in the domain is the last global admin → refused by
+cases: caller is not a global admin (BR-19) → 403 for a domain in their scope,
+404 for one outside it, and nothing is written — no `deleted_mailboxes` row, no
+Mailward-side cleanup; unknown domain → 404; a mailbox in the domain is the last
+global admin → refused by
 `docs/policies/authorization.md` BR-A01, nothing written.
 
 ## States
@@ -254,6 +312,10 @@ condition:
 | Active | `active = 1` | create with `active` on; `POST /enable` |
 | Disabled | `active = 0` | create with `active` off; `POST /disable` |
 | Deleted | row absent | `DELETE`; terminal, no transition out |
+
+Active ⇄ Disabled is fully reversible and carries no other state: the accounts
+inside the domain keep their own `active` values across both transitions
+(BR-21). Every transition in the table is global-admin only (BR-19).
 
 Expired is not a state Mailward drives: it is the condition `expired <= now()`
 (BR-09), evaluated per request, on rows whose `expired` was set outside
@@ -345,6 +407,52 @@ Each runs against **both** MySQL and PostgreSQL (`01-architecture.md` §8).
   alias figures report `count = 2`, `limit = 2` and `at_limit = true`, and no
   statement executed by the listing counts rows in `forwardings` or in
   `alias_domain` (BR-18).
+- **AC-22**: given a global admin, when they create a domain, update it, disable
+  it, re-enable it and finally delete it, then every one of the five requests
+  succeeds and each is recorded in `audit_log` — the permitted path of BR-19,
+  exercised end to end.
+- **AC-23**: given a domain admin assigned to `example.com`, when they
+  `POST /domains` with a valid, otherwise-acceptable `new.com`, then the
+  response is 403, no `domain` row exists for `new.com`, and an authorization
+  failure naming their address is recorded in `audit_log` (BR-19).
+- **AC-24**: given a domain admin assigned to `example.com`, when they
+  `PUT /domains/example.com` with a changed `description` and `mailboxes`, then
+  the response is 403 — not 404, because the domain is inside their scope — no
+  column of the row changes, `modified` included, and an authorization failure
+  is recorded (BR-19).
+- **AC-25**: given an active `example.com` and a domain admin assigned to it,
+  when they `POST /domains/example.com/disable`, then the response is 403 and
+  `active` is still `1`; and given the same domain already disabled, when they
+  `POST /domains/example.com/enable`, then the response is 403 and `active` is
+  still `0` (BR-19).
+- **AC-26**: given a domain admin assigned to `example.com`, which holds two
+  mailboxes and one standalone alias, when they `DELETE /domains/example.com`,
+  then the response is 403, the `domain` row and every dependant enumerated in
+  BR-16 are still present, no `deleted_mailboxes` row was written, no
+  Mailward-side row of BR-17 was removed, and an authorization failure is
+  recorded (BR-19).
+- **AC-27**: given a domain admin assigned to `example.com`, when they request
+  `GET /domains/create` and `GET /domains/example.com/edit`, then both are
+  refused — 403 for the edit page, since the domain is inside their scope — and
+  no form and no domain data are serialised; and when they request
+  `GET /domains`, which does render, then the authorization props on that page
+  enable no create, edit, disable, enable or delete control (BR-19, BR-20).
+- **AC-28**: given a global admin who is not an administrator of any specific
+  domain, when they create `new.com`, then the create succeeds and the
+  `domain_admins` table is byte-for-byte unchanged — no row is written for the
+  creator or for anyone else (BR-20).
+- **AC-29**: given `example.com` with three mailboxes of which one already has
+  `active = 0`, two standalone alias accounts, a `forwardings` row per mailbox
+  and an alias domain targeting it, when a global admin disables the domain,
+  then `domain.active` is `0` and every `mailbox`, `alias`, `forwardings` and
+  `alias_domain` row of that domain holds exactly the `active` value it held
+  before — the already-inactive mailbox included. The only columns the operation
+  writes are `domain.active` and `domain.modified` (BR-21, BR-08).
+- **AC-30**: given that same domain immediately after being disabled, when a
+  global admin re-enables it, then `domain.active` is `1` and every account's
+  `active` is still its original value — in particular the mailbox that was
+  inactive before the disable is still inactive, and was never switched on by
+  the round trip (BR-21).
 
 ## Out of Scope
 
@@ -360,20 +468,23 @@ Each runs against **both** MySQL and PostgreSQL (`01-architecture.md` §8).
 - `domain.settings` and `domain.quota` (BR-06, BR-07).
 - Renaming a domain (OQ-DOM-08).
 - Setting or clearing a domain expiry date (BR-09).
+- Deactivating the accounts inside a domain when the domain is disabled, and
+  recording their prior state anywhere so it could be restored (BR-21).
+- Assigning or removing domain administrators —
+  `docs/features/domain-admins.md`. This feature only deletes `domain_admins`
+  rows as part of the cascade (BR-13) and never writes one on create (BR-20).
 
 ## Open Questions
 
-- **OQ-DOM-01** — May a domain admin create a domain? The scope rule
-  (`docs/policies/authorization.md` §2) cannot answer it: a domain being created
-  belongs to no one yet. If yes, is the creator automatically written into
-  `domain_admins` for the new domain?
-- **OQ-DOM-02** — May a domain admin disable or delete a domain they
-  administer, or are those two operations global-admin only?
-- **OQ-DOM-03** — What does disabling a domain (`active = 0`) do to its
-  mailboxes and aliases? Whether Postfix and Dovecot already refuse the whole
-  domain on that flag, or whether Mailward must also deactivate each account, is
-  not stated anywhere in `docs/` — and it decides what the disable action
-  writes and whether it is reversible.
+- **OQ-DOM-03** — Confirm, against a running install, that the mail server
+  honours `domain.active = 0`: that Postfix refuses mail addressed to an account
+  in a disabled domain, and that an account in a disabled domain cannot
+  authenticate to Dovecot — both observed while the accounts' own `active` flags
+  are still `1`, which is the state BR-21 leaves them in. The probe is
+  `docs/reference/decisions-needed.md` E6. If the flag turns out **not** to be
+  honoured, the decision in BR-21 has to be revisited, because a "disabled"
+  domain that still receives mail and still lets its users log in is worse than
+  having no disable action at all.
 - **OQ-DOM-08** — Can a domain be renamed? `domain.domain` is the primary key
   and is denormalised into `mailbox.domain`, `alias.domain`,
   `forwardings.domain` and `forwardings.dest_domain`, `domain_admins.domain`,

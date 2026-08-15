@@ -11,6 +11,12 @@ importers:
       '@inertiajs/vue3':
         specifier: ^3.6.1
         version: 3.6.1(vue@3.5.41(typescript@5.9.3))
+      '@my-eyes/core':
+        specifier: ^0.2.0
+        version: 0.2.0(tailwindcss@4.3.3)
+      '@my-eyes/vue':
+        specifier: ^0.2.0
+        version: 0.2.0(@my-eyes/core@0.2.0(tailwindcss@4.3.3))(vue@3.5.41(typescript@5.9.3))
       vue:
         specifier: ^3.5.41
         version: 3.5.41(typescript@5.9.3)
@@ -104,6 +110,17 @@ packages:
     engines: {node: '>=22.13.0'}
     os: [darwin, linux]
     hasBin: true
+
+  '@my-eyes/core@0.2.0':
+    resolution: {integrity: sha512-ufnfaM69RnF/Uh1htxq+Hx1fb0tj/Lpg4RfM+bV47P5WoyqlYNTi3BsUyjAeF93ImNgXPssBaxmwM8dF+SzBFg==}
+    peerDependencies:
+      tailwindcss: ^4.0.0
+
+  '@my-eyes/vue@0.2.0':
+    resolution: {integrity: sha512-x0D3IgHycwbjKoqTosiEiyj+NivQKJ0C5tO7Rb38pkE3vIq5tsdAMtT6k20LSZlPJ3Vs3+YG54ffw/Hme8T0xw==}
+    peerDependencies:
+      '@my-eyes/core': ^0.2.0
+      vue: ^3.5.0
 
   '@oxc-project/types@0.144.0':
     resolution: {integrity: sha512-nuhZIOLuI6TFQ32I/WnUx+SCPY7SdSKwgnFHydAuoS1+Z4BRcaP+RRJmGzl9lw+0OFF7UmaESf7KQRXaNLHypg==}
@@ -968,6 +985,15 @@ snapshots:
       - react-devtools-core
       - utf-8-validate
     optional: true
+
+  '@my-eyes/core@0.2.0(tailwindcss@4.3.3)':
+    dependencies:
+      tailwindcss: 4.3.3
+
+  '@my-eyes/vue@0.2.0(@my-eyes/core@0.2.0(tailwindcss@4.3.3))(vue@3.5.41(typescript@5.9.3))':
+    dependencies:
+      '@my-eyes/core': 0.2.0(tailwindcss@4.3.3)
+      vue: 3.5.41(typescript@5.9.3)
 
   '@oxc-project/types@0.144.0': {}
 

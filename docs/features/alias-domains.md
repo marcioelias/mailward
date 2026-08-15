@@ -263,10 +263,13 @@ Each runs against **both** MySQL and PostgreSQL (`01-architecture.md` §8).
   candidate (`02-domain.md` §5) — is not stated in `docs/` and is unverified
   against a real install.
 - **OQ-AD-04** — May a domain admin create or delete an alias domain pointing at
-  a domain they administer, or are those operations global-admin only? Related
-  to OQ-DOM-02 in `docs/features/domains.md`, but the answer need not be the
-  same: an alias domain adds a name to the mail server's namespace, which the
-  domains feature restricts separately.
+  a domain they administer, or are those operations global-admin only? The
+  equivalent question for domains is decided — every write to a `domain` row is
+  global-admin only (`docs/features/domains.md` BR-19;
+  `docs/reference/decisions-needed.md` D8, decided 2026-08-15) — but the answer
+  here need not be the same, and this document does not assume it: an alias
+  domain adds a name to the mail server's namespace, which the domains feature
+  restricts separately.
 - **OQ-AD-06** — May an alias domain point at a target domain that is disabled
   (`active = 0`) or expired, and does disabling a target domain change anything
   about its alias domains? Depends on OQ-DOM-03.

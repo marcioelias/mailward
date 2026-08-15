@@ -45,6 +45,12 @@ final class Domain extends MailModel
 {
     protected $table = 'domain';
 
+    /** The domain record scopes on its own primary key. */
+    public function domainScopeColumn(): string
+    {
+        return 'domain';
+    }
+
     protected $primaryKey = 'domain';
 
     protected $keyType = 'string';

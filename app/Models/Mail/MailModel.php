@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Models\Mail;
 
+use App\Models\Mail\Scopes\DomainScope;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 
 /**
@@ -30,8 +32,42 @@ abstract class MailModel extends Model
 
     public $timestamps = false;
 
-    // The default domain scope required by docs/policies/authorization.md §3
-    // belongs on this class, and is added once authentication exists: it has to
-    // read the administered domains of the acting administrator, and there is
-    // no authenticated actor yet.
+    protected static function booted(): void
+    {
+        static::addGlobalScope(new DomainScope);
+    }
+
+    /**
+     * The column holding the domain this record belongs to, or null when the
+     * model is not scoped by domain and its authorisation is expressed some
+     * other way.
+     *
+     * `used_quota` and `last_login` return null on purpose. Both carry a
+     * `domain` column, but `used_quota.domain` is filled by a trigger that
+     * exists on MySQL and nowhere else, so scoping on it would silently return
+     * nothing on PostgreSQL (docs/reference/schema-type-matrix.md, D14). They
+     * are read through their owning mailbox, which is scoped.
+     */
+    public function domainScopeColumn(): ?string
+    {
+        return 'domain';
+    }
+
+    /**
+     * Drop the domain restriction from a query.
+     *
+     * `docs/policies/authorization.md` §3 requires this to be explicit and
+     * visible at the call site, and it is: every use reads as a deliberate
+     * widening rather than an absent filter. Legitimate uses are
+     * authentication, which runs before an actor exists, console commands,
+     * which have no request, and a global admin operating deliberately across
+     * every domain.
+     *
+     * @param  Builder<static>  $query
+     * @return Builder<static>
+     */
+    public function scopeWithoutDomainScope($query)
+    {
+        return $query->withoutGlobalScope(DomainScope::class);
+    }
 }

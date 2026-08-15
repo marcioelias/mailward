@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "9538ab0ce31b74f1846eb459c7a9c26c",
+    "content-hash": "6e1b879af52fc92253bb8d577a298eb3",
     "packages": [
         {
             "name": "bacon/bacon-qr-code",
@@ -2388,6 +2388,73 @@
                 }
             ],
             "time": "2026-03-08T20:05:35+00:00"
+        },
+        {
+            "name": "marcioelias/my-eyes",
+            "version": "v0.2.0",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/marcioelias/my-eyes.git",
+                "reference": "aa365b401f503ef3f88155125e2d9f1f8f914053"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/marcioelias/my-eyes/zipball/aa365b401f503ef3f88155125e2d9f1f8f914053",
+                "reference": "aa365b401f503ef3f88155125e2d9f1f8f914053",
+                "shasum": ""
+            },
+            "require": {
+                "illuminate/support": "^12.61.1|^13.12.0",
+                "illuminate/view": "^12.61.1|^13.12.0",
+                "php": "^8.2"
+            },
+            "require-dev": {
+                "larastan/larastan": "^3.0",
+                "laravel/pint": "^1.18",
+                "livewire/livewire": "^3.6|^4.0",
+                "orchestra/testbench": "^10.0|^11.0",
+                "pestphp/pest": "^3.0|^4.0"
+            },
+            "type": "library",
+            "extra": {
+                "laravel": {
+                    "providers": [
+                        "MyEyes\\MyEyesServiceProvider"
+                    ]
+                }
+            },
+            "autoload": {
+                "psr-4": {
+                    "MyEyes\\": "src/"
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Márcio Elias",
+                    "email": "marcioelias@gmail.com"
+                }
+            ],
+            "description": "Tailwind-based Blade component library and admin scaffolding",
+            "homepage": "https://github.com/marcioelias/my-eyes",
+            "keywords": [
+                "admin",
+                "blade",
+                "components",
+                "design-system",
+                "laravel",
+                "livewire",
+                "tailwind",
+                "ui"
+            ],
+            "support": {
+                "issues": "https://github.com/marcioelias/my-eyes/issues",
+                "source": "https://github.com/marcioelias/my-eyes"
+            },
+            "time": "2026-08-15T02:13:04+00:00"
         },
         {
             "name": "monolog/monolog",

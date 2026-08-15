@@ -1,0 +1,3 @@
+minimumReleaseAgeExclude:
+  - '@my-eyes/core@0.2.0'
+  - '@my-eyes/vue@0.2.0'

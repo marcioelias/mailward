@@ -80,42 +80,97 @@ removed OQ-AL-05), `mailbox-aliases-forwardings.md` (BR-15; removed OQ-A5),
 `alias-domains.md` (BR-11; removed OQ-AD-05), `dashboard.md` (BR-18; removed
 OQ-DASH-03).
 
+### D8 — May a domain admin write a domain record? — **decided 2026-08-15**
+
+**Answer: no. Every write to a `domain` row is global-admin only.** Creating,
+editing, disabling, re-enabling and deleting a domain all require
+`mailbox.isglobaladmin = 1`. A domain admin keeps the visibility the scope rule
+gives them (`docs/policies/authorization.md` §2) over the domains assigned to
+them, and no write authority over the domain record itself. Their authority
+covers the *contents* of those domains — mailboxes, aliases, forwardings —
+which the feature documents owning those tables govern.
+
+The reasoning: creating a domain adds a name to the mail server's namespace and
+deleting one destroys every account inside it through the cascade decided as
+**D1**. Neither operation is scoped to a domain the actor already administers,
+so the scope rule has no domain under which it could authorize them.
+
+This also disposes of the sub-question in D3: nobody but a global admin creates
+a domain, so whether a creator is automatically written into `domain_admins`
+for what they just created never arises — and no such row is written.
+
+Refusal keeps the shape the endpoints already had: `403` for a domain inside the
+actor's scope, `404` for one outside it so the scope does not leak existence,
+both logged as authorization failures (`docs/policies/authorization.md` §7).
+
+**Changed** — `domains.md` (BR-19, BR-20, AC-22 to AC-28; Actors, Contracts and
+Out of Scope; removed OQ-DOM-01 and OQ-DOM-02). Partially answers **D3**, which
+survives for alias domains and domain-admin assignment.
+
+### D9 — What does disabling a domain do to its accounts? — **decided 2026-08-15**
+
+**Answer: nothing. It writes `domain.active = 0` and nothing else.** Mailward
+does not touch the `active` flag of any mailbox, alias, forwarding or alias
+domain inside it, and re-enabling writes `domain.active = 1` and nothing else.
+
+The reason is reversibility. If disabling also deactivated every mailbox,
+re-enabling could not know which accounts were already inactive beforehand, and
+would switch back on accounts that were meant to stay off. Preserving that prior
+state would mean recording it in Mailward's own database — a mechanism nobody
+has asked for.
+
+**This decision depends on an unconfirmed fact** and says so in the feature
+document: Postfix and Dovecot must honour the domain-level flag. The
+confirmation is **E6**, now the whole of `domains.md` OQ-DOM-03. If the flag
+turns out not to be honoured, this decision has to be revisited, because a
+"disabled" domain that still receives mail is worse than no disable action at
+all.
+
+**Changed** — `domains.md` (BR-21, AC-29, AC-30; States, Contracts and Out of
+Scope; narrowed OQ-DOM-03 to the confirmation, keeping the id).
+
 ---
 
 ## Answer these first
 
 Ranked by how many feature documents each one unblocks.
 
-### D3 — What may a domain admin write, as opposed to see?
+### D3 — What may a domain admin write, as opposed to see? — **partly decided**
 
-**Unblocks 3 documents** (and settles the `403` branch of most endpoints in
-them).
+**Unblocks 2 documents.** The domains half is answered — see **D8**: every write
+to a `domain` row is global-admin only, and no `domain_admins` row is created as
+a side effect of creating a domain. What remains is everything D8 did not reach.
 
 `docs/policies/authorization.md` §2 decides **visibility** for domain-owned
 resources. It decides nothing about write authority, and it cannot reach an
-object that does not belong to anyone yet — a domain being created.
+object that does not belong to anyone yet.
 
-**Why it cannot be guessed.** The scope rule has no term for it. Both readings
-are consistent with the policy as written, and the choice is a statement about
-how much the organisation trusts a domain admin, not a fact about iRedMail.
+**What is still open**
 
-**Options**
+| Open question | The choice |
+|---|---|
+| `alias-domains.md` OQ-AD-04 — may a domain admin create or delete an alias domain pointing at a domain they administer? | An alias domain also adds a name to the server's namespace, which is the reasoning D8 used for domains; but alias domains are attached to a specific target domain the actor does administer, so the answer need not be the same and must be stated, not inherited |
+| `domain-admins.md` OQ-DA-01 — may a domain admin assign or remove another administrator on a domain they administer? | Self-propagating authority: a domain admin who may grant the role can widen access to their domain without a global admin. Independent of D8 |
+
+**Why the rest cannot be guessed.** The scope rule has no term for write
+authority. Both readings remain consistent with the policy as written, and the
+choice is a statement about how much the organisation trusts a domain admin, not
+a fact about iRedMail.
+
+**Options for the remainder**
 
 | Option | Consequence |
 |---|---|
-| Domain admins are read-mostly — every write in these three features is global-admin-only | Simplest, smallest blast radius; a domain admin cannot in practice run a domain alone |
-| Domain admins write inside their domains but never change the server's namespace (no domain create/delete, no alias-domain create/delete) | The middle position; needs an explicit list of which operations sit on which side |
-| Full symmetry inside scope | A domain admin can delete a domain, which under D1 may cascade to accounts they were never assigned |
-
-**Sub-question, only if domain admins may create a domain:** is the creator
-automatically written into `domain_admins` for it? Otherwise they create a
-domain they immediately cannot see.
+| Read-mostly, extending D8 — these writes are global-admin-only too | Consistent with D8; a domain admin cannot in practice run a domain alone |
+| Domain admins write inside their domains but never change the server's namespace | The middle position, and the one D8 already takes for domains; for OQ-AD-04 it means no, for OQ-DA-01 it means yes |
+| Full symmetry inside scope | For OQ-DA-01 it means a domain admin can appoint further administrators of their domain |
 
 Already decided and not reopened: setting or clearing `mailbox.isglobaladmin` is
-global-admin-only (`domain-admins.md` BR-11).
+global-admin-only (`domain-admins.md` BR-11); every write to a `domain` row is
+global-admin only (D8).
 
-**Resolves** — `domains.md` OQ-DOM-01, OQ-DOM-02; `alias-domains.md` OQ-AD-04;
-`domain-admins.md` OQ-DA-01. Adjacent to D6.
+**Resolves** — `alias-domains.md` OQ-AD-04; `domain-admins.md` OQ-DA-01.
+Adjacent to D6. (`domains.md` OQ-DOM-01 and OQ-DOM-02 were resolved by D8.)
 
 ---
 
@@ -403,18 +458,23 @@ Blocks `mailbox-aliases-forwardings.md` in its entirety, and BR-12 of
 
 ### E6 — What `domain.active = 0` actually stops
 
-Set it on a test domain, then attempt authentication and delivery for an account
-inside it, and read the mail log:
+**Now a confirmation, not an open choice.** D9 decided that disabling writes
+`domain.active = 0` and nothing else, which assumes the mail server honours the
+flag. This probe confirms or refutes that assumption. Set it on a test domain,
+leaving every account's own `active` at `1` — the state D9 leaves them in — then
+attempt authentication and delivery for an account inside it, and read the mail
+log:
 
 ```bash
 sudo doveadm auth test user@disabled.example 'pw'
 echo test | sendmail user@disabled.example
 ```
 
-If Postfix and Dovecot already refuse the whole domain, disabling is one UPDATE
-and is reversible. If they do not, Mailward must deactivate every account in the
-domain, and re-enabling cannot know which accounts were already inactive — a
-state-loss problem the disable action would have to solve.
+Both must be refused. If they are, D9 stands: disabling is one UPDATE and is
+reversible. If either succeeds, **D9 has to be revisited** — a "disabled" domain
+that still receives mail, or still lets its users log in, is worse than no
+disable action at all, and the alternative (deactivating every account) brings
+back the state-loss problem D9 declined to build a mechanism for.
 
 Also repeat for an alias domain whose target is disabled.
 

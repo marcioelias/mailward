@@ -29,6 +29,16 @@ final class AliasDomain extends MailModel
 {
     protected $table = 'alias_domain';
 
+    /**
+     * An alias domain belongs to the domain it delivers into, which is the
+     * only column here that resolves to a row in `domain`
+     * (docs/features/alias-domains.md BR-05).
+     */
+    public function domainScopeColumn(): string
+    {
+        return 'target_domain';
+    }
+
     protected $primaryKey = 'alias_domain';
 
     protected $keyType = 'string';

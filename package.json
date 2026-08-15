@@ -22,6 +22,8 @@
     },
     "dependencies": {
         "@inertiajs/vue3": "^3.6.1",
+        "@my-eyes/core": "^0.2.0",
+        "@my-eyes/vue": "^0.2.0",
         "vue": "^3.5.41"
     }
 }

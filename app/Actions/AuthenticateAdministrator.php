@@ -45,7 +45,13 @@ final class AuthenticateAdministrator
             return null;
         }
 
-        $mailbox = Mailbox::query()->find($address);
+        /*
+         * Explicitly unscoped, and this is one of the two legitimate uses the
+         * scope documents: authentication runs before an actor exists, so the
+         * deny-by-default filter would refuse every login including the very
+         * first one (docs/policies/authorization.md §3).
+         */
+        $mailbox = Mailbox::query()->withoutDomainScope()->find($address);
 
         if (! $mailbox instanceof Mailbox) {
             /*

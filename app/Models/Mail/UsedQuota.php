@@ -34,6 +34,15 @@ final class UsedQuota extends MailModel
 
     protected $table = self::TABLE;
 
+    /**
+     * Not scoped by its own domain column — see MailModel::domainScopeColumn().
+     * This table is reached through the mailbox that owns it, which is scoped.
+     */
+    public function domainScopeColumn(): ?string
+    {
+        return null;
+    }
+
     protected $primaryKey = 'username';
 
     protected $keyType = 'string';
