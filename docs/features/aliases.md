@@ -73,7 +73,7 @@ restated here. The rules below only narrow it.
   same transaction. No foreign key exists between the two tables, so orphans are
   the application's responsibility on delete (`docs/01-architecture.md` §3,
   "Consequences to design around"; `docs/02-domain.md` §6). What else, if
-  anything, a deletion must record is OQ-AL-06.
+  anything, a deletion must record is BR-14: nothing beyond those two writes.
 - **BR-11** — `alias.accesspolicy` is a free-text `VARCHAR(30)` with nothing
   constraining it at the schema level. Mailward neither validates it against a
   fixed set nor presents one until OQ-AL-01 is answered
@@ -87,6 +87,23 @@ restated here. The rules below only narrow it.
   constraint is added to `alias` or `forwardings` to support this feature
   (`docs/01-architecture.md` §2,
   `docs/decisions/0002-separate-application-database.md`).
+- **BR-14** — Deleting a standalone alias account requires nothing beyond the
+  cascade already in BR-10: the `alias` row and its `is_list` member rows, in
+  one transaction (`docs/reference/decisions-needed.md` D1). There is **no**
+  deletion record equivalent to `deleted_mailboxes` — an alias account owns no
+  mail storage, so iRedMail's removal cron has nothing to do for it
+  (`docs/02-domain.md` §11). No table in Mailward's own database is cleaned
+  either, because none is keyed by an alias address; `audit_log` records the
+  deletion and, being append-only, keeps its reference to the address afterwards
+  (`docs/02-domain.md` §13). Deleting the alias's **domain** deletes the alias
+  through this same cascade, in the domain deletion's transaction
+  (`docs/features/domains.md` BR-16).
+- **BR-15** — `domain.aliases` counts the rows this feature creates and only
+  those: `alias` rows whose `domain` is that domain
+  (`docs/reference/decisions-needed.md` D2; `docs/features/domains.md` BR-18).
+  Per-account alias rows (`forwardings.is_alias`) and `alias_domain` rows do not
+  consume the budget, so the count BR-06 compares against the limit is taken
+  from `alias` alone and never from `forwardings` or `alias_domain`.
 
 ## Data
 
@@ -214,6 +231,16 @@ PostgreSQL (`docs/01-architecture.md` §8).
 - **AC-13** — given an alias whose `accesspolicy` is an arbitrary string, when
   it is saved and read back, then the value is stored unchanged and no
   validation rejects it (BR-11).
+- **AC-14** — given an alias with two members, when `DELETE /aliases/{address}`
+  succeeds, then no row was inserted into `deleted_mailboxes`, no row was
+  written or removed in `panel_profiles` or `two_factor_secrets`, and the
+  `audit_log` entry for the deletion still names the alias address (BR-14).
+- **AC-15** — given a domain with `domain.aliases = 2`, one existing `alias`
+  row, four `forwardings` rows with `is_alias = 1` and two `alias_domain` rows
+  targeting it, when a second alias account is created it succeeds, and when a
+  third is attempted it fails validation — the limit check counted `alias` rows
+  only, and no executed statement counted `forwardings` or `alias_domain`
+  (BR-15).
 
 ## Out of Scope
 
@@ -254,14 +281,6 @@ PostgreSQL (`docs/01-architecture.md` §8).
   domains, or outside the server entirely? The scope rule
   (`docs/policies/authorization.md` §2) governs the resource's domain and says
   nothing about a forwarding destination.
-- **OQ-AL-05** — Does `domain.aliases` count standalone alias accounts only, or
-  also per-user aliases (`forwardings.is_alias`)? `docs/02-domain.md` §2
-  describes it as "max alias accounts" and §5 describes `is_alias` as "a
-  per-account alias address"; which population the limit bounds is not stated.
-- **OQ-AL-06** — Does deleting a standalone alias require anything beyond
-  deleting the `alias` row and its `is_list` rows? Mailboxes have
-  `deleted_mailboxes` (`docs/02-domain.md` §11); no equivalent record is
-  documented for aliases.
 - **OQ-AL-07** — Is `forwardings.active = 0` honoured for an `is_list` row —
   can a member be disabled rather than removed? Nothing sourced says any
   iRedMail component reads it. The same doubt is recorded for
@@ -273,3 +292,12 @@ PostgreSQL (`docs/01-architecture.md` §8).
 - **OQ-AL-09** — Must the domain part of an alias address already exist in
   `domain`? `docs/02-domain.md` §3 states this requirement for
   `alias_domain.target_domain` and states nothing equivalent for `alias`.
+- **OQ-AL-10** — When an alias account is deleted, are `forwardings` rows
+  *elsewhere* that name its address in the `forwarding` column removed as well —
+  the alias as another account's forwarding target, or as a member of a second
+  alias? BR-14 removes only the alias's own `is_list` rows, while
+  `docs/features/mailboxes.md` BR-23 does remove such inbound rows when a
+  **mailbox** is deleted. The two cascades are therefore asymmetric, and an
+  alias address can survive as a live routing target after the alias itself is
+  gone. Raised by applying `docs/reference/decisions-needed.md` D1, whose
+  per-parent list names inbound rows for a mailbox and not for an alias account.

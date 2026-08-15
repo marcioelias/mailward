@@ -65,12 +65,25 @@ domain at all is unresolved (OQ-AD-04).
   nothing may infer "never set" from the stored value (`schema-type-matrix.md`
   D1; `02-domain.md` §1.2).
 - **BR-09** — There are no foreign keys (`0002-separate-application-database.md`),
-  so BR-02 is a check, not a constraint, and it can go stale: the target domain
-  can be deleted afterwards by another request. What that deletion must do to
-  these rows is unresolved — OQ-AD-03. Mailward issues DML only against `vmail`,
-  and for any operation that also writes Mailward's own database the `vmail`
-  write is the last commit and the operation is idempotent on retry
+  so BR-02 is a check, not a constraint. What the deletion of a target domain
+  does to these rows is BR-10. Mailward issues DML only against `vmail`, and for
+  any operation that also writes Mailward's own database the `vmail` write is
+  the last commit and the operation is idempotent on retry
   (`01-architecture.md` §3).
+- **BR-10** — Deleting a `domain` deletes every `alias_domain` row whose
+  `target_domain` names it, in the same `vmail` transaction as the domain
+  deletion — an explicit cascade, because there is no foreign key to perform one
+  (`docs/reference/decisions-needed.md` D1; `docs/features/domains.md` BR-16).
+  This feature never issues that delete itself; the domains feature does. What
+  this feature gains is that BR-02 holds permanently rather than only at write
+  time: **no `alias_domain` row outlives the `domain` row it names**, so no read
+  path here has to tolerate a dangling `target_domain`.
+- **BR-11** — An `alias_domain` row counts against **no** per-domain limit.
+  `domain.aliases` bounds standalone alias accounts (`vmail.alias`) only
+  (`docs/reference/decisions-needed.md` D2; `docs/features/domains.md` BR-18),
+  and `domain.mailboxes` and `domain.maillists` bound populations this table is
+  not part of. This feature therefore performs no limit check on create, and
+  that absence is a decision, not an omission.
 
 ## Data
 
@@ -167,8 +180,8 @@ stays in whichever of the two states it already occupies.
 
 Forbidden: any transition out of Deleted; writing `active` as `true`/`false`
 (BR-07); changing `alias_domain` (OQ-AD-02); any state in which
-`target_domain` names a row absent from `domain` at write time (BR-02) — the
-same condition arising *after* the write is OQ-AD-03.
+`target_domain` names a row absent from `domain` — checked at write time by
+BR-02, and prevented afterwards by the cascade of BR-10.
 
 ## Acceptance Criteria
 
@@ -212,6 +225,15 @@ Each runs against **both** MySQL and PostgreSQL (`01-architecture.md` §8).
 - **AC-12**: given any alias-domain read path, when the model is queried, then
   no `expired` predicate appears in the SQL — a global expiry scope leaking onto
   this model would produce a missing-column error and fail this test.
+- **AC-13**: given alias domains `a.net` and `b.net` both targeting
+  `example.com`, and `c.net` targeting `other.com`, when `example.com` is
+  deleted, then the `a.net` and `b.net` rows are gone, `c.net` and `other.com`
+  are unchanged, and `GET /alias-domains` never returns a row whose
+  `target_domain` is absent from `domain` (BR-10).
+- **AC-14**: given `example.com` with `aliases = 1` and one existing `alias`
+  row, when an alias domain targeting `example.com` is created, then it succeeds
+  and no statement executed by the create counts rows in `alias`, `forwardings`
+  or `alias_domain` (BR-11).
 
 ## Out of Scope
 
@@ -219,10 +241,11 @@ Each runs against **both** MySQL and PostgreSQL (`01-architecture.md` §8).
   forwardings of its own; delivery resolves to the target domain's accounts
   (`02-domain.md` §3).
 - Per-domain limits. `domain.aliases`, `domain.mailboxes` and `domain.maillists`
-  are specified in `docs/features/domains.md` (BR-03 there); whether an alias
-  domain counts toward any of them is OQ-DOM-09 there, restated as OQ-AD-05.
-- Deleting the target domain, and its effect on these rows — specified in
-  `docs/features/domains.md` once OQ-DOM-06 / OQ-AD-03 is answered.
+  are specified in `docs/features/domains.md` (BR-03 and BR-18 there); an alias
+  domain counts toward none of them (BR-11).
+- Deleting the target domain, and its effect on these rows — the write belongs
+  to `docs/features/domains.md` BR-16, and is restated here as BR-10 only
+  because this feature depends on the invariant it produces.
 - Renaming an alias domain in place (OQ-AD-02).
 - Catch-all addresses, per-alias-domain transports, backup MX behaviour — none
   of these exist on this table.
@@ -239,18 +262,11 @@ Each runs against **both** MySQL and PostgreSQL (`01-architecture.md` §8).
   table may hold an alias-domain name — `forwardings.dest_domain` is the
   candidate (`02-domain.md` §5) — is not stated in `docs/` and is unverified
   against a real install.
-- **OQ-AD-03** — What happens to alias domains when their `target_domain` is
-  deleted? Same question as OQ-DOM-06 in `docs/features/domains.md`. Leaving the
-  rows violates BR-02 after the fact; deleting them is not stated anywhere. This
-  feature cannot state the invariant as permanent until it is answered.
 - **OQ-AD-04** — May a domain admin create or delete an alias domain pointing at
   a domain they administer, or are those operations global-admin only? Related
   to OQ-DOM-02 in `docs/features/domains.md`, but the answer need not be the
   same: an alias domain adds a name to the mail server's namespace, which the
   domains feature restricts separately.
-- **OQ-AD-05** — Does an alias domain count against `domain.aliases`? Same
-  question as OQ-DOM-09 in `docs/features/domains.md`, which owns the limits.
 - **OQ-AD-06** — May an alias domain point at a target domain that is disabled
   (`active = 0`) or expired, and does disabling a target domain change anything
   about its alias domains? Depends on OQ-DOM-03.
-</content>

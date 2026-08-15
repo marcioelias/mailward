@@ -70,4 +70,3 @@ running install.
 - A health check that finds pre-existing mixed-case rows, and offers to
   normalise them, is worth building: it fixes a class of login failure that
   predates Mailward
-</content>

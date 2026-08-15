@@ -44,4 +44,3 @@ databases as external systems it may read and write rows in, but never alter.
   they are treated as impossible on both. Correlation happens in PHP
 - No transactions spanning both databases. Operations touching both are ordered
   deliberately, with the `vmail` write last, and are idempotent on retry
-</content>

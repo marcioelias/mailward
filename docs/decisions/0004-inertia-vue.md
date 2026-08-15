@@ -35,4 +35,3 @@ Two things tip it away from Livewire:
   is additive and separate, following `standards/api.md`
 - Livewire is not used anywhere in this project. Mixing the two state models is
   explicitly forbidden by the standard
-</content>

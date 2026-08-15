@@ -25,4 +25,3 @@ OpenLDAP is out of scope and will not be added without a separate ADR.
   plainly in the README so nobody discovers it after installing
 - Detecting the backend at startup and refusing to run against LDAP, with a
   clear message, is preferable to failing obscurely later
-</content>

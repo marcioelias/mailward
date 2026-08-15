@@ -97,6 +97,16 @@ feature adds no role and relaxes no scope.
   connection, and therefore produces no `audit_log` entry for a successful view
   (`policies/authorization.md` §7 records writes; an authorization failure
   against this route is still recorded).
+- **BR-18** — The count compared against `domain.aliases` under BR-07 and BR-08
+  is the number of **standalone alias accounts** in the domain — rows in
+  `vmail.alias` — and nothing else (`docs/reference/decisions-needed.md` D2;
+  `docs/features/domains.md` BR-18). Per-account aliases
+  (`forwardings.is_alias`) and alias domains (`alias_domain`) are bounded by no
+  limit, so they enter no figure on this screen and their absence from "domains
+  at their limit" is a decision, not an omission. The alias limit is therefore
+  fully computable, and "domains at their limit" covers `domain.aliases` and
+  `domain.mailboxes`; `domain.maillists` stays excluded for the separate reason
+  in Out of Scope.
 
 ## Data
 
@@ -106,7 +116,7 @@ feature adds no role and relaxes no scope.
 |---|---|---|
 | `domain` | `domain`, `aliases`, `mailboxes`, `maillists`, `maxquota`, `active`, `expired` | limits (BR-07, BR-08), domain count |
 | `mailbox` | `username`, `domain`, `quota`, `active`, `expired` | account count, allocated quota, correlation key for usage (BR-03) |
-| `alias` | `address`, `domain`, `active` | standalone alias count |
+| `alias` | `address`, `domain`, `active` | standalone alias count, and the only population counted against `domain.aliases` (BR-18) |
 | `used_quota` | `username`, `bytes`, `messages` — **never `domain`** | usage (BR-03, BR-04) |
 | `last_login` | `username`, `imap`, `pop3`, `lda` | dormancy (BR-11, BR-12, BR-13) |
 | `domain_admins` | `username`, `domain` | the actor's scope (`policies/authorization.md` §2) |
@@ -123,7 +133,7 @@ PostgreSQL (matrix D7); they are read here and never written.
 | Standalone aliases | count of `alias` rows in scope |
 | Quota allocated | sum of `mailbox.quota` in scope, overall and per domain |
 | Quota used | sum of `used_quota.bytes` for the mailboxes in scope, overall and per domain, correlated by `username` (BR-03) |
-| Domains at their limit | domains in scope where a non-zero limit has been reached (BR-07, BR-08) |
+| Domains at their limit | domains in scope where a non-zero limit has been reached (BR-07, BR-08); the alias limit counts `alias` rows only (BR-18) |
 | Dormant accounts | mailboxes in scope whose most recent recorded login is older than the dormancy threshold, excluding unreliable values (BR-12, BR-13) |
 
 Whether the counts include inactive or expired rows is OQ-DASH-02; what
@@ -230,6 +240,11 @@ degraded     a figure could not be computed reliably and says so
   `find()`. *(BR-11)*
 - **AC-19** — Given an unauthenticated request to `/dashboard`, when it is made,
   then it is redirected to `/login` and no figure is computed.
+- **AC-20** — Given a domain with `aliases = 2`, two `alias` rows, six
+  `forwardings` rows with `is_alias = 1` and three `alias_domain` rows targeting
+  it, when the dashboard renders, then the domain appears in "domains at their
+  limit" for the alias limit, the reported alias count is `2`, and no executed
+  statement counts rows in `forwardings` or in `alias_domain`. *(BR-18)*
 
 ## Out of Scope
 
@@ -267,11 +282,6 @@ degraded     a figure could not be computed reliably and says so
   only active, unexpired ones — and is the breakdown shown? The scope line says
   only "account counts". The same question decides whether a disabled domain
   contributes to the domain count.
-- **OQ-DASH-03** — What counts against `domain.aliases` for the purpose of
-  BR-08: standalone `alias` accounts only, or also per-account aliases
-  (`forwardings.is_alias`)? Held open as `docs/features/domains.md` OQ-DOM-09
-  and `docs/features/aliases.md` OQ-AL-05; until it is decided, "domains at
-  their limit" cannot be computed for the alias limit at all.
 - **OQ-DASH-04** — What is "last login" when `last_login` has three columns
   (`imap`, `pop3`, `lda`) — the greatest of the three, or one nominated
   protocol? And what threshold makes an account dormant? `02-domain.md` §10

@@ -21,82 +21,70 @@ needs the probe.
 
 ---
 
+## Decided
+
+Answered by the project owner. Each entry records the answer, the date, and the
+documents it changed. The feature documents are authoritative; these summaries
+are not.
+
+### D1 — What does deleting a parent do to its children? — **decided 2026-08-15**
+
+**Answer: explicit cascade.** Mailward deletes the dependants itself, in one
+transaction, because `vmail` has no foreign keys. Not "refuse", not "allow
+orphans". Per parent:
+
+- **Domain** → its mailboxes (each through the mailbox cascade below), its
+  standalone `alias` accounts, its `alias_domain` rows, the remaining
+  `forwardings` rows of the domain, its `domain_admins` rows (BR-A03), and the
+  Mailward-side rows keyed by addresses of that domain — except `audit_log`,
+  which is append-only and keeps its references (`02-domain.md` §13).
+- **Mailbox** → its self-referencing `forwardings` row, its `is_alias` and
+  `is_forwarding` rows, rows where the address appears as a `forwarding` target,
+  rows where it is an `is_list` member of some alias, plus a `deleted_mailboxes`
+  row so iRedMail's cron removes the files, plus the Mailward-side cleanup of
+  `02-domain.md` §13.
+- **Alias account** → its `is_list` rows, and nothing more: no deletion record
+  equivalent to `deleted_mailboxes` is kept, because an alias owns no storage.
+- **Demotion of an administrator** → **not** a deletion. The mailbox survives.
+  Demotion removes `domain_admins` rows and the flag its form covers, and does
+  **not** touch `panel_profiles` or `two_factor_secrets`: the account still
+  exists and may be promoted again.
+
+Two consequences written into the feature documents rather than hidden:
+
+- `deleted_mailboxes.maildir` is an absolute path while `mailbox.maildir` is the
+  relative tail below `storagebasedirectory` and `storagenode` (C3, E2,
+  `current-iredmail-behaviour.md` Q1). The cascade writes the concatenation of
+  the three columns. **This derivation is not confirmed against a running
+  install** — `mailboxes.md` OQ-M3 holds that one confirmation.
+- No transaction spans both databases (`01-architecture.md` §3), so the
+  Mailward-side deletes commit first, the `vmail` writes commit last, and the
+  whole operation must be idempotent on retry.
+
+**Changed** — `domains.md` (BR-16, BR-17; removed OQ-DOM-04, OQ-DOM-05,
+OQ-DOM-06, OQ-DOM-07), `mailboxes.md` (BR-23, BR-24, BR-25; removed OQ-M4;
+raised OQ-M9), `mailbox-aliases-forwardings.md` (BR-14; removed OQ-A7),
+`aliases.md` (BR-14; removed OQ-AL-06; raised OQ-AL-10), `alias-domains.md`
+(BR-10; removed OQ-AD-03), `domain-admins.md` (BR-14; removed OQ-DA-06).
+
+### D2 — What counts against `domain.aliases`? — **decided 2026-08-15**
+
+**Answer: standalone `alias` rows only.** Not `forwardings.is_alias` rows, not
+`alias_domain` rows. Those two populations are unbounded by this limit, and by
+any other per-domain limit in v1. Every document affected says so explicitly,
+including the ones that consequently have **no** limit check, so that absence
+reads as a decision rather than an omission.
+
+**Changed** — `domains.md` (BR-18; removed OQ-DOM-09), `aliases.md` (BR-15;
+removed OQ-AL-05), `mailbox-aliases-forwardings.md` (BR-15; removed OQ-A5),
+`alias-domains.md` (BR-11; removed OQ-AD-05), `dashboard.md` (BR-18; removed
+OQ-DASH-03).
+
+---
+
 ## Answer these first
 
 Ranked by how many feature documents each one unblocks.
-
-### D1 — What does deleting a parent do to its children?
-
-**Unblocks 6 documents.**
-
-When a domain, a mailbox or an alias account is deleted, what happens to
-everything that references it? There are no foreign keys anywhere in `vmail`
-(`0002-separate-application-database.md`), so whatever is chosen has to be
-written as application logic in every delete path.
-
-**Why it cannot be guessed.** The schema expresses no intent, and the wrong
-answer is silent: orphaned `forwardings` and `alias_domain` rows are still acted
-on by Postfix after the object they belonged to is gone.
-
-**Options**
-
-| Option | Consequence |
-|---|---|
-| **Refuse** — deletion only when nothing references the object | No orphans, no cascade code, no dependency on E2. An administrator must empty a domain by hand before deleting it. Makes OQ-DOM-05/06/07 and OQ-AD-03 disappear entirely |
-| **Explicit cascade** — Mailward deletes the dependants in one transaction | Matches expectation, largest amount of code, and **blocked by E2**: cascading mailbox deletion needs a `deleted_mailboxes.maildir` value |
-| **Allow orphans** | Cheapest, and the one outcome `docs/features/domains.md` OQ-DOM-04 names as actively harmful |
-
-**The answer must cover, per parent:**
-
-- Domain → its mailboxes, aliases, forwardings, alias domains, `domain_admins`
-  rows (already decided: removed, BR-A03), and Mailward-side rows keyed by the
-  addresses of that domain.
-- Mailbox → its self-referencing `forwardings` row, its `is_alias` and
-  `is_forwarding` rows, and rows where it appears as a `forwarding` target or as
-  an `is_list` member. Mailward-side cleanup is already decided
-  (`02-domain.md` §13).
-- Alias account → its `is_list` rows (already decided, BR-10), and whether a
-  deletion record equivalent to `deleted_mailboxes` is kept at all.
-- Demotion of an administrator → whether `panel_profiles` and
-  `two_factor_secrets` rows are removed. If P1 puts 2FA outside v1, half of this
-  disappears.
-
-**Resolves** — `domains.md` OQ-DOM-04, OQ-DOM-05, OQ-DOM-06, OQ-DOM-07;
-`alias-domains.md` OQ-AD-03; `mailboxes.md` OQ-M4;
-`mailbox-aliases-forwardings.md` OQ-A7; `aliases.md` OQ-AL-06;
-`domain-admins.md` OQ-DA-06.
-
----
-
-### D2 — What counts against `domain.aliases`?
-
-**Unblocks 5 documents.**
-
-`domain.aliases` is described as "max alias accounts" (`02-domain.md` §2). Three
-different row populations could be the thing it bounds.
-
-**Why it cannot be guessed.** `02-domain.md` §2 gives the column a rule
-(enforced before account creation, `0` = unlimited) without naming the
-population. Counting differently from iRedAdmin produces two panels disagreeing
-about whether a domain is full — an operational fault, not a cosmetic one.
-
-**Options**
-
-| Option | Consequence |
-|---|---|
-| `alias` rows only | The limit matches exactly one screen. Per-user aliases and alias domains are unbounded |
-| `alias` rows + `forwardings.is_alias` rows | Adding a second address to one mailbox consumes the domain's alias budget; `mailbox-aliases-forwardings.md` gains a limit check it currently has none of |
-| The above + `alias_domain` rows | Adding an alias domain can exhaust the budget; `alias-domains.md` gains a limit check |
-
-Until this is answered, "domains at their limit" cannot be computed for the
-alias limit at all (`dashboard.md` OQ-DASH-03), so the dashboard figure is
-partly unimplementable.
-
-**Resolves** — `domains.md` OQ-DOM-09; `aliases.md` OQ-AL-05;
-`mailbox-aliases-forwardings.md` OQ-A5; `alias-domains.md` OQ-AD-05;
-`dashboard.md` OQ-DASH-03.
-
----
 
 ### D3 — What may a domain admin write, as opposed to see?
 

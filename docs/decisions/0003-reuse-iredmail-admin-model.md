@@ -52,4 +52,3 @@ panel preferences, last panel login, audit log — all keyed by email address.
 The legacy `admin` table still exists in the iRedMail schema and is not used by
 current iRedMail versions. Mailward ignores it. Documented in `02-domain.md` §8
 so it is not rediscovered and wired up by mistake.
-</content>

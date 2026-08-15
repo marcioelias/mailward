@@ -49,4 +49,3 @@ The following rules are binding on the project and on contributors:
 - OQ-03 (the `maildir` path algorithm) must be re-derived from observed
   behaviour on a real install and reimplemented — not lifted from iRedMail's
   GPL source
-</content>

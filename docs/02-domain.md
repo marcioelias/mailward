@@ -142,8 +142,21 @@ The largest table in the schema. Grouped by purpose:
 
 **Storage**
 `mailboxformat` (default `maildir`), `mailboxfolder` (default `Maildir`),
-`storagebasedirectory`, `storagenode`, `maildir` (absolute path), `quota`
-(bytes), `domain`, `transport`
+`storagebasedirectory`, `storagenode`, `maildir`, `quota`, `domain`,
+`transport`
+
+**`maildir` is a relative tail, not an absolute path.** Dovecot's shipped
+`user_query` builds the real location by concatenating `storagebasedirectory`,
+`storagenode` and `maildir`. Only `deleted_mailboxes.maildir` is absolute,
+which is where the confusion originates — so the deletion record stores the
+concatenation, not this column's value
+(`docs/reference/current-iredmail-behaviour.md`).
+
+The unit of `quota` is **not settled**: this document has said bytes, and
+iRedMail's own Dovecot query multiplies the column by 1048576, which implies
+mebibytes. The two readings differ by a factor of a million and both look
+plausible on screen. See OQ-05 in `docs/00-overview.md`; no quota value is
+written until it is resolved.
 
 **Administration**
 `isadmin`, `isglobaladmin`
@@ -161,10 +174,17 @@ lib-storage, quota-status, plus the three SOGo `CHAR(1)` columns from 1.3.
 changes IMAP, SMTP and webmail access simultaneously, and must be presented as
 such in the UI.
 
-**OQ-03:** `maildir` generation. iRedMail derives a hashed path from the
-address; creating an account with the wrong path yields an account Dovecot
-cannot deliver to. The algorithm must be re-derived from a real install and
-reimplemented — not copied from GPL source, since Mailward is MIT.
+**OQ-03 is largely dissolved.** The path is instance configuration rather than
+a constant (`docs/decisions/0007-configurable-maildir-and-password-scheme.md`),
+and the branch that would have hurt is closed: **Dovecot creates the mail
+directory itself**, because iRedMail always sets the location explicitly from
+SQL. Creating a mailbox is therefore plain SQL from an unprivileged process,
+which confirms `01-architecture.md` §6 rather than contradicting it.
+
+What remains is confirming the exact hashing against a running install, and it
+is no longer blocking: nothing parses this column, so any path the configured
+generator produces is as good as the one iRedMail would have written, provided
+it is unique and lower case.
 
 ## 5. Forwardings — the important one
 
@@ -318,4 +338,3 @@ key — cross-database constraints are impossible. Deleting a mailbox must
 explicitly clean up the rows that reference it, except `audit_log`, which is
 append-only and deliberately retains references to accounts that no longer
 exist.
-</content>

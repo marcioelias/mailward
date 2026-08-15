@@ -89,12 +89,49 @@ domain admin may perform at all is unresolved — see OQ-DOM-01 and OQ-DOM-02.
   touches are written in one transaction on the `vmail` connection. For any
   operation that also writes Mailward's own database, the `vmail` write is the
   last commit and the operation is idempotent on retry (`01-architecture.md` §3).
-  Which rows a domain deletion must reach beyond BR-13 is unresolved — see
-  OQ-DOM-04 through OQ-DOM-07.
+  Which rows a domain deletion must reach beyond BR-13 is BR-16.
 - **BR-15** — Mailward issues DML only against `vmail`: `SELECT`, `INSERT`,
   `UPDATE`, `DELETE`. No DDL, no schema assumptions beyond
   `docs/reference/schema-type-matrix.md`
   (`0002-separate-application-database.md`).
+- **BR-16** — Deleting a domain is an **explicit cascade**. It is neither
+  refused because dependants exist, nor allowed to leave orphans: Mailward
+  deletes the dependants itself, because `vmail` has no foreign keys to do it
+  (`docs/reference/decisions-needed.md` D1;
+  `0002-separate-application-database.md`). In one transaction on the `vmail`
+  connection (BR-14), the deletion of domain `D` removes, in this order:
+  1. every `mailbox` row whose `domain` is `D`, each one through the full
+     mailbox cascade of `docs/features/mailboxes.md` BR-23 — including the
+     `deleted_mailboxes` row that makes iRedMail's cron remove the files;
+  2. every standalone `alias` row whose `domain` is `D`, each one through the
+     alias cascade of `docs/features/aliases.md` BR-14 — the `alias` row and its
+     `is_list` member rows;
+  3. every `alias_domain` row whose `target_domain` is `D`
+     (`docs/features/alias-domains.md` BR-10);
+  4. every `forwardings` row that still has `domain = D`, whatever its
+     discriminator flags — the residue the first two steps did not reach;
+  5. its `domain_admins` rows (BR-13,
+     `docs/policies/authorization.md` BR-A03);
+  6. the `domain` row itself.
+- **BR-17** — The same operation removes the rows in **Mailward's own** database
+  keyed by an address of `D` — `panel_profiles`, `two_factor_secrets` and any
+  other table keyed by an address (`02-domain.md` §13). `audit_log` is the
+  exception: it is append-only and deliberately keeps its references to
+  addresses that no longer exist (`02-domain.md` §13). No transaction can span
+  the two databases (`01-architecture.md` §3), so the Mailward-side deletes
+  commit **first** and the `vmail` transaction of BR-16 is the last commit, and
+  the whole operation is **idempotent on retry**: repeating it after a partial
+  failure deletes whatever remains, succeeds when nothing remains, and never
+  writes a second `deleted_mailboxes` row for a mailbox whose `mailbox` row is
+  already gone (`docs/reference/decisions-needed.md` D1).
+- **BR-18** — `domain.aliases` bounds **standalone alias accounts only** — rows
+  in `vmail.alias` whose `domain` is that domain (`02-domain.md` §6;
+  `docs/reference/decisions-needed.md` D2). Per-account aliases
+  (`forwardings.is_alias`, `02-domain.md` §5) and alias domains
+  (`alias_domain`, §3) are **not** counted against it and are bounded by no
+  per-domain limit in v1. The count BR-03 checks before an alias account is
+  created, and the count BR-04 publishes, are both taken from `alias` alone; no
+  count of `forwardings` or `alias_domain` rows enters either.
 
 ## Data
 
@@ -120,12 +157,18 @@ name). `$timestamps = false`; the columns are `created` / `modified`
 | `active` | read/write, BR-10 |
 
 Read for counts, never written by this feature: `mailbox` (rows where
-`domain = :domain`), `alias` (rows where `domain = :domain`).
+`domain = :domain`), `alias` (rows where `domain = :domain`). The alias count is
+`alias` only — never `forwardings`, never `alias_domain` (BR-18).
 
-Written by this feature: `domain_admins` (deletion only, BR-13).
+Written by this feature: `domain_admins` (deletion only, BR-13). On deletion
+only, the cascade of BR-16 additionally writes `mailbox`, `alias`,
+`alias_domain`, `forwardings` and `deleted_mailboxes`, each through the rules of
+the feature that owns that table.
 
 Mailward's own database: `audit_log`, one row per write and per authorization
-failure (`docs/policies/authorization.md` §7).
+failure (`docs/policies/authorization.md` §7) — never cleaned. On deletion only,
+`panel_profiles`, `two_factor_secrets` and any other table keyed by an address
+of the domain are cleaned (BR-17).
 
 Notes:
 
@@ -192,10 +235,14 @@ so the domain simply reports `at_limit` (BR-04).
 unknown or out-of-scope domain → 404; not permitted (OQ-DOM-02) → 403.
 
 **`DELETE /domains/{domain}`** — no body beyond the confirmation the UI
-requires. Removes the `domain` row and its `domain_admins` rows (BR-13) in one
-`vmail` transaction (BR-14). Error cases: unknown or out-of-scope domain → 404;
-not permitted (OQ-DOM-02) → 403; the domain still owns accounts → behaviour
-unresolved, OQ-DOM-04.
+requires. Removes the `domain` row, its `domain_admins` rows (BR-13) and every
+dependant enumerated in BR-16, in one `vmail` transaction (BR-14), after the
+Mailward-side cleanup of BR-17. A domain that still owns accounts is **not**
+refused: the cascade empties it. The confirmation the UI requires states how
+many mailboxes, alias accounts and alias domains the cascade will remove. Error
+cases: unknown or out-of-scope domain → 404; not permitted (OQ-DOM-02) → 403; a
+mailbox in the domain is the last global admin → refused by
+`docs/policies/authorization.md` BR-A01, nothing written.
 
 ## States
 
@@ -268,12 +315,44 @@ Each runs against **both** MySQL and PostgreSQL (`01-architecture.md` §8).
   expired; given a row whose `expired` is yesterday, then it is reported
   expired — both asserted through `expired > now()`, with no sentinel constant
   in the test.
+- **AC-16**: given `example.com` holding two mailboxes, one standalone alias
+  with two `is_list` members, one `forwardings` row with `is_alias = 1`, one
+  alias domain targeting it and two `domain_admins` rows, when a permitted actor
+  deletes the domain, then the `domain` row, both `mailbox` rows, the `alias`
+  row, its two member rows, the `alias_domain` row, every `forwardings` row
+  whose `domain` is `example.com` and both `domain_admins` rows are all gone;
+  exactly one `deleted_mailboxes` row exists per deleted mailbox; and every
+  `vmail` statement of the deletion ran inside one transaction (BR-16).
+- **AC-17**: given alias domains `other.net → example.com` and
+  `keep.net → keep.com`, when `example.com` is deleted, then the `other.net` row
+  is gone and both the `keep.net` row and the `keep.com` domain are untouched
+  (BR-16).
+- **AC-18**: given `admin@example.com` with rows in `panel_profiles` and
+  `two_factor_secrets` and entries in `audit_log`, when `example.com` is
+  deleted, then both Mailward-side rows are gone and every `audit_log` entry
+  remains, still naming `admin@example.com` (BR-17).
+- **AC-19**: given the `vmail` transaction of a domain deletion fails after the
+  Mailward-side rows of BR-17 were committed, when the same deletion is retried,
+  then it succeeds, every row named in BR-16 is gone, and exactly one
+  `deleted_mailboxes` row exists for each mailbox that was deleted — never two
+  (BR-17).
+- **AC-20**: given `example.com` with `aliases = 2`, two `alias` rows, five
+  `forwardings` rows with `is_alias = 1` and three `alias_domain` rows targeting
+  it, when a third standalone alias account is created it fails with a limit
+  error; when a sixth per-account alias and a fourth alias domain are created,
+  both succeed and no limit error is raised (BR-18).
+- **AC-21**: given that same domain, when `GET /domains` renders it, then the
+  alias figures report `count = 2`, `limit = 2` and `at_limit = true`, and no
+  statement executed by the listing counts rows in `forwardings` or in
+  `alias_domain` (BR-18).
 
 ## Out of Scope
 
 - Creating, editing or deleting mailboxes, aliases, forwardings and domain
-  admins. This feature owns the limits (BR-03) and the `domain_admins` deletion
-  (BR-13); the account features own their own writes.
+  admins outside the deletion cascade. This feature owns the limits (BR-03), the
+  `domain_admins` deletion (BR-13) and the cascade of BR-16; the account
+  features own their own writes and define the per-object cascades BR-16
+  invokes.
 - Alias domains — `docs/features/alias-domains.md`.
 - The dashboard itself. It consumes BR-04, it does not define it.
 - Per-domain iRedAPD, Amavis or mailing-list settings (`00-overview.md` §5
@@ -295,33 +374,11 @@ Each runs against **both** MySQL and PostgreSQL (`01-architecture.md` §8).
   domain on that flag, or whether Mailward must also deactivate each account, is
   not stated anywhere in `docs/` — and it decides what the disable action
   writes and whether it is reversible.
-- **OQ-DOM-04** — Is deleting a domain that still owns mailboxes, aliases,
-  forwardings or alias domains refused, allowed with an explicit cascade, or
-  allowed leaving orphans? Nothing in `docs/` decides. There are no foreign keys
-  (`0002-separate-application-database.md`), so whichever answer is chosen has
-  to be written as application logic, and the wrong one silently leaves rows
-  that Postfix will still act on.
-- **OQ-DOM-05** — If domain deletion does delete mailboxes, each one needs a
-  `deleted_mailboxes` row (`02-domain.md` §11) whose `maildir` is an absolute
-  path, which depends on OQ-03 (`00-overview.md` §9). Domain deletion is
-  therefore blocked by OQ-03 as well as by OQ-DOM-04.
-- **OQ-DOM-06** — What happens to `alias_domain` rows whose `target_domain` is
-  the domain being deleted? Leaving them violates the invariant in
-  `02-domain.md` §3; deleting them is not stated anywhere.
-- **OQ-DOM-07** — Are Mailward-owned rows keyed by address (`panel_profiles`,
-  `two_factor_secrets`) removed for the accounts of a deleted domain?
-  `02-domain.md` §13 states the cleanup obligation for mailbox deletion and says
-  nothing about domain deletion. `audit_log` is append-only and keeps its
-  references either way.
 - **OQ-DOM-08** — Can a domain be renamed? `domain.domain` is the primary key
   and is denormalised into `mailbox.domain`, `alias.domain`,
   `forwardings.domain` and `forwardings.dest_domain`, `domain_admins.domain`,
   `used_quota.domain` and `last_login.domain`, with no foreign key to propagate
   a change. Nothing in `docs/` says whether renaming is supported.
-- **OQ-DOM-09** — Does the `aliases` limit count only standalone alias accounts
-  (`alias` rows, `02-domain.md` §6), or also per-account aliases
-  (`forwardings.is_alias`, §5) and alias domains (§3)? Counting differently from
-  iRedAdmin produces two panels disagreeing about whether a domain is full.
 - **OQ-DOM-10** — What values are valid for `domain.transport`? Both schema
   files declare it free-text `VARCHAR` with no constraint
   (`schema-type-matrix.md`, Unverified 10), so there is nothing to validate
@@ -329,5 +386,3 @@ Each runs against **both** MySQL and PostgreSQL (`01-architecture.md` §8).
 - **OQ-DOM-11** — How is a domain whose `expired` is already in the past —
   written outside Mailward — presented and treated?
   `docs/policies/authorization.md` §6 defines expiry only for the login gate.
-</content>
-</invoke>

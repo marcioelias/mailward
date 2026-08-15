@@ -81,4 +81,3 @@ Every write is recorded in `audit_log` with the acting address, the action, the
 target, and the before/after values. Authorization failures are recorded too —
 a domain admin repeatedly probing another domain's resources is exactly what
 the log exists to show.
-</content>

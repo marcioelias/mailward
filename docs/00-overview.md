@@ -152,4 +152,3 @@ against a running install.
 The nine feature documents in `docs/features/` raise roughly sixty further
 questions. They are deduplicated and ranked in
 `docs/reference/decisions-needed.md`, which is the working list.
-</content>

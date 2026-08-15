@@ -194,5 +194,3 @@ MIT — `docs/decisions/0006-mit-license.md`.
 
 Mailward contains no code from iRedMail or iRedAdmin. It reads a schema, which
 is not a derivative work of the software that creates it.
-</content>
-</invoke>

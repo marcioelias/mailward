@@ -125,8 +125,21 @@ This feature is where all four are enforced.
 - **BR-13** — Panel state that iRedMail has no place for — last panel login,
   preferences, 2FA — lives in Mailward's own database keyed by email address,
   never as a flag on `mailbox` (`docs/02-domain.md` §13,
-  `docs/decisions/0003-reuse-iredmail-admin-model.md`). Demotion does not by
-  itself remove those rows; see OQ-DA-06.
+  `docs/decisions/0003-reuse-iredmail-admin-model.md`). Demotion does not remove
+  those rows — BR-14.
+- **BR-14** — **Demotion is not a deletion.** The `mailbox` row survives, and so
+  does everything keyed by its address (`docs/reference/decisions-needed.md`
+  D1). A demotion writes, in one transaction with the BR-A01 check, only what
+  its form covers: `DELETE /admins/{address}/global` clears
+  `mailbox.isglobaladmin` and removes the `'ALL'` row (BR-04);
+  `DELETE /admins/{address}/domains/{domain}` removes that one `domain_admins`
+  row; a full demotion removes the account's `domain_admins` rows and, subject
+  to OQ-DA-02, clears `isadmin`. It touches **no** row in Mailward's own
+  database — not `panel_profiles`, not `two_factor_secrets` — because the
+  account still exists, still receives mail, and may be promoted again, at which
+  point that state must still be there. Those rows are removed only when the
+  **mailbox** itself is deleted (`docs/features/mailboxes.md` BR-18) or when its
+  domain is deleted (`docs/features/domains.md` BR-17).
 
 ## Data
 
@@ -316,14 +329,23 @@ PostgreSQL (`docs/01-architecture.md` §8).
 - **AC-18** — given an administrator whose only domain is deleted, when they log
   in, then access is granted and an empty state is rendered rather than an error
   (BR-A03).
+- **AC-19** — given a global admin with a `panel_profiles` row, a
+  `two_factor_secrets` row and one real per-domain `domain_admins` row, and
+  given a second global admin exists, when the account is demoted through
+  `DELETE /admins/{address}/global` and then
+  `DELETE /admins/{address}/domains/{domain}`, then `isglobaladmin` is `0`, the
+  `'ALL'` row and the per-domain row are gone, the `mailbox` row still exists
+  with `active` unchanged, and both Mailward-side rows are byte-for-byte
+  unchanged; when the account is promoted again, the same `two_factor_secrets`
+  secret is still in force (BR-14).
 
 ## Out of Scope
 
 - Mailbox CRUD itself — creating the account being promoted is the mailboxes
   feature (`docs/00-overview.md` §5).
 - Deleting a domain and the cascade of its `domain_admins` rows — that write
-  belongs to the domains feature; BR-A03 only requires this feature to render
-  the resulting empty state.
+  belongs to the domains feature (`docs/features/domains.md` BR-16); BR-A03 only
+  requires this feature to render the resulting empty state.
 - The legacy `admin` table. It is not how administrators are defined today and
   Mailward ignores it entirely (`docs/02-domain.md` §8).
 - A Mailward-owned role or permission model. There is no third role in v1
@@ -360,10 +382,6 @@ PostgreSQL (`docs/01-architecture.md` §8).
   equal; on PostgreSQL it would not
   (`docs/reference/open-questions-research.md`, OQ-02, Hypothesis 2 and the
   verification queries). BR-05's exclusion is only as reliable as this answer.
-- **OQ-DA-06** — Does demotion remove the account's rows in Mailward's own
-  database — `panel_profiles`, `two_factor_secrets`? `docs/02-domain.md` §13
-  requires explicit cleanup when a **mailbox** is deleted, and says nothing
-  about a demotion, which leaves the mailbox in place.
 - **OQ-DA-07** — How is the actor recorded in `audit_log` for a console run of
   `mailward:promote`? `docs/policies/authorization.md` §7 requires an acting
   address, and a shell invocation has no authenticated administrator.

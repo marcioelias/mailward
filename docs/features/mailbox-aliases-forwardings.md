@@ -87,6 +87,23 @@ one's own forwardings is a later, self-service feature (`00-overview.md` §5).
 - **BR-13** — `vmail` receives DML only. No column, index or constraint is added
   to `forwardings` to make any of the above easier
   (`01-architecture.md` §2, `docs/decisions/0002`).
+- **BR-14** — Deleting the owning mailbox deletes every row this feature
+  manages for it — an explicit cascade, since `forwardings` has no foreign key
+  to the `mailbox` row (`docs/reference/decisions-needed.md` D1;
+  `docs/features/mailboxes.md` BR-23). It reaches the account's `is_alias` rows,
+  its `is_forwarding` rows, the self-referencing row of BR-06, every row
+  elsewhere in the table whose `forwarding` column is that address, and every
+  `is_list` row making it a member of a standalone alias. The write belongs to
+  the mailbox deletion, in that deletion's `vmail` transaction; **no endpoint in
+  Contracts performs it**. What this feature gains is the invariant: no row it
+  lists can outlive its owning mailbox, so no listing has to tolerate a row
+  whose owner is gone.
+- **BR-15** — A row written by this feature counts against **no** per-domain
+  limit. `domain.aliases` bounds standalone alias accounts (`vmail.alias`) only
+  (`docs/reference/decisions-needed.md` D2; `docs/features/domains.md` BR-18),
+  so per-account aliases and forwardings are unbounded in v1. This feature
+  therefore performs no limit check before an insert, and that absence is a
+  decision, not an omission.
 
 ## Data
 
@@ -205,6 +222,15 @@ A row has two states, `active = 1` and `active = 0`, plus absence.
 - **AC-14** — Given the same operations run on both drivers, when the resulting
   rows are compared, then they are identical in every column this feature
   writes.
+- **AC-15** — Given `user@a.com` with two `is_alias` rows, one `is_forwarding`
+  row, its self-referencing row, one row owned by another mailbox whose
+  `forwarding` is `user@a.com`, and one `is_list` membership, when the mailbox
+  is deleted, then none of those six rows remains and every endpoint of this
+  feature for `user@a.com` responds 404 (BR-14).
+- **AC-16** — Given a domain with `domain.aliases = 1` and one standalone
+  `alias` row already in it, when ten per-account aliases are created for a
+  mailbox in that domain, then all ten succeed and no statement executed by any
+  of the creates counts rows for a limit check (BR-15).
 
 ## Out of Scope
 
@@ -221,8 +247,9 @@ A row has two states, `active = 1` and `active = 0`, plus absence.
   (`00-overview.md` §5, `02-domain.md` §12).
 - Alias domains, which redirect a whole domain rather than one address
   (`02-domain.md` §3).
-- Deleting these rows as part of deleting the owning mailbox — undecided, see
-  OQ-A7 and `docs/features/mailboxes.md` OQ-M4.
+- Deleting these rows as part of deleting the owning mailbox. The cascade is
+  decided (BR-14), but the write belongs to `docs/features/mailboxes.md` BR-23,
+  not to any endpoint here.
 - Bulk import and bulk edit.
 
 ## Open Questions
@@ -249,19 +276,10 @@ A row has two states, `active = 1` and `active = 0`, plus absence.
   `vmail.domain` (or in `vmail.alias_domain`), and must that domain be one the
   actor administers? `02-domain.md` §3 states the "target domain must exist" rule
   for alias domains only; nothing states it for a per-user alias address.
-- **OQ-A5** — Does the `domain.aliases` limit count per-user alias rows in
-  `forwardings`, or only standalone alias accounts in `vmail.alias`?
-  `02-domain.md` §2 describes the column as "max alias accounts" and requires
-  the limit to be enforced before creating an account, without saying which
-  rows count.
 - **OQ-A6** — Does v1 expose per-row enable/disable through
   `forwardings.active`, or only create and delete? The column exists and
   defaults to `1`; the v1 scope line says only "per-user aliases and
   forwardings".
-- **OQ-A7** — Must deleting the owning mailbox delete these rows? Same question
-  as `docs/features/mailboxes.md` OQ-M4: `02-domain.md` §13 decides the cleanup
-  for Mailward's own database only, and there are no foreign keys inside `vmail`
-  either.
 - **OQ-A8** — Is a forwarding target validated beyond address format — for
   instance, must a target inside a locally hosted domain correspond to an
   existing account, and are self-referencing or circular targets between two

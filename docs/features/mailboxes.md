@@ -103,7 +103,8 @@ feature narrows nothing in it, and adds no role.
 - **BR-16** — Deleting a mailbox removes the `mailbox` row and inserts a row
   into `deleted_mailboxes`. iRedMail's own cron job performs the filesystem
   removal. Mailward runs no shell, requires no root and has no privileged helper
-  in this feature (`01-architecture.md` §6, `02-domain.md` §11).
+  in this feature (`01-architecture.md` §6, `02-domain.md` §11). These two
+  writes are part of the larger cascade specified in BR-23.
 - **BR-17** — `deleted_mailboxes` is insert-only. Nothing retrieved from it is
   updated or saved back, and no `updateOrCreate` is used: MySQL declares no
   primary key and no unique index on that table (matrix D10). Where a timestamp
@@ -128,6 +129,47 @@ feature narrows nothing in it, and adds no role.
   (matrix D15). `rank` and the hyphenated `enable*` columns are accessed through
   the query builder only, never through raw SQL, because their quoting is
   driver-specific (matrix D19).
+- **BR-23** — Deleting a mailbox is an **explicit cascade** inside `vmail`. It
+  is neither refused because rows reference the account, nor allowed to leave
+  orphans that Postfix would still act on: Mailward deletes them itself, because
+  there are no foreign keys (`docs/reference/decisions-needed.md` D1;
+  `docs/decisions/0002-separate-application-database.md`). In one transaction on
+  the `vmail` connection, deleting address `A` removes:
+  1. the `mailbox` row for `A`;
+  2. the self-referencing `forwardings` row of BR-04;
+  3. every `forwardings` row owned by `A` with `is_alias = 1` or
+     `is_forwarding = 1` — the account's per-user aliases and forwardings
+     (`docs/features/mailbox-aliases-forwardings.md` BR-14; which column carries
+     the owner is OQ-A1 of that document and does not change what is deleted);
+  4. every `forwardings` row whose `forwarding` column is `A` — the account as
+     somebody else's forwarding target;
+  5. every `forwardings` row with `is_list = 1` whose `forwarding` column is
+     `A` — the account's membership of any standalone alias account, leaving the
+     alias accounts themselves intact (`docs/features/aliases.md` BR-02);
+  and inserts exactly one `deleted_mailboxes` row (BR-16, BR-17, BR-24) so
+  iRedMail's cron removes the files. Rows carrying `is_maillist = 1` are not
+  touched: mailing lists are unmodelled in v1 (`02-domain.md` §12).
+- **BR-24** — The `maildir` value written into that `deleted_mailboxes` row is
+  the concatenation `storagebasedirectory` + `/` + `storagenode` + `/` +
+  `maildir`, read from the `mailbox` row being deleted.
+  `deleted_mailboxes.maildir` is documented as an **absolute** path
+  (`02-domain.md` §11) while `mailbox.maildir` is the relative tail below the
+  other two columns — the shape Dovecot's own `user_query` concatenates
+  (`docs/reference/open-questions-research.md` OQ-03, established fact 1;
+  `docs/reference/current-iredmail-behaviour.md` Q1, fact 1). Writing
+  `mailbox.maildir` alone would make iRedMail's cron delete nothing, or resolve
+  a path nobody intended. **This derivation is not yet confirmed against a
+  running install**; OQ-M3 holds that one confirmation and no deletion may be
+  shipped before it is run.
+- **BR-25** — No transaction spans both databases (BR-21,
+  `01-architecture.md` §3), so the deletion is ordered: the Mailward-side
+  cleanup of BR-18 commits **first**, and the `vmail` transaction of BR-23 is
+  the last commit. The operation is **idempotent on retry** — repeating it after
+  a partial failure deletes whatever remains, succeeds when nothing remains, and
+  never inserts a second `deleted_mailboxes` row for an address whose `mailbox`
+  row is already gone. `deleted_mailboxes` cannot enforce that itself: MySQL
+  declares no primary key and no unique index on it (BR-17, matrix D10)
+  (`docs/reference/decisions-needed.md` D1).
 
 ## Data
 
@@ -147,10 +189,10 @@ feature narrows nothing in it, and adds no role.
 written by the domain-admins feature, not by this one. `settings` and
 `disclaimer` are not surfaced (BR-09, Out of Scope).
 
-**Also written** — `vmail.forwardings`: the self-referencing row of BR-04 only.
-Every other row in that table belongs to
-`docs/features/mailbox-aliases-forwardings.md` or to the standalone alias
-feature.
+**Also written** — `vmail.forwardings`: on create, the self-referencing row of
+BR-04 only; on delete, every row enumerated in BR-23. Outside those two paths,
+rows in that table belong to `docs/features/mailbox-aliases-forwardings.md` or
+to the standalone alias feature.
 
 **Insert-only** — `vmail.deleted_mailboxes`: `username`, `domain`, `maildir`,
 `bytes`, `messages`, `admin` (the acting address), `delete_date`.
@@ -180,7 +222,7 @@ validation-error redirect, not JSON.
 | PUT | `/mailboxes/{mailbox}` | Updates profile, quota, services, `allow_nets`, `active` |
 | PUT | `/mailboxes/{mailbox}/password` | Changes the real mail password (BR-10, BR-11) |
 | PATCH | `/mailboxes/{mailbox}/active` | Activate / deactivate (BR-07, BR-19) |
-| DELETE | `/mailboxes/{mailbox}` | Deletes per BR-16, BR-17, BR-18 |
+| DELETE | `/mailboxes/{mailbox}` | Deletes per BR-16, BR-17, BR-18 and the cascade of BR-23, BR-24, BR-25 |
 
 Authorization props are passed to the frontend for showing and hiding controls
 only; every request is authorized again on the server
@@ -291,6 +333,22 @@ violated.
 - **AC-24** — Given a mailbox whose `expired` is in the past, when expiry is
   evaluated, then it is treated as expired on both drivers, with no comparison
   against a hard-coded sentinel string.
+- **AC-25** — Given `user@a.com` with its self-referencing row, two `is_alias`
+  rows, one `is_forwarding` row, one row belonging to `other@a.com` whose
+  `forwarding` is `user@a.com`, one `is_list` membership of `sales@a.com` and
+  one row carrying `is_maillist = 1` that names it, when the mailbox is deleted,
+  then the first five are gone, the `alias` row `sales@a.com` still exists, and
+  the `is_maillist` row is unchanged (BR-23).
+- **AC-26** — Given a mailbox whose `storagebasedirectory` is `/var/vmail`,
+  `storagenode` is `vmail1` and `maildir` is
+  `a.com/u/us/use/user-2026.08.15.10.00.00/`, when it is deleted, then
+  `deleted_mailboxes.maildir` holds
+  `/var/vmail/vmail1/a.com/u/us/use/user-2026.08.15.10.00.00/` — the three
+  columns concatenated, never `mailbox.maildir` on its own (BR-24).
+- **AC-27** — Given the `vmail` transaction of a mailbox deletion fails after
+  the Mailward-side rows of BR-18 were committed, when the deletion is retried,
+  then it succeeds, every row named in BR-23 is gone, and exactly one
+  `deleted_mailboxes` row exists for that address — never two (BR-25).
 
 ## Out of Scope
 
@@ -338,12 +396,6 @@ violated.
   three columns must be concatenated when the deletion row is written; get it
   wrong and iRedMail's cron deletes nothing, or resolves a path we did not
   intend.
-- **OQ-M4** — Must deleting a mailbox also delete its rows in
-  `vmail.forwardings` — the self-referencing row, its per-user aliases and
-  forwardings, and any row where the address appears as `forwarding` or as a
-  list member? `02-domain.md` §13 decides the cleanup only for Mailward's own
-  database. Nothing in `docs/` decides the `vmail`-side cleanup, and the schema
-  has no foreign keys to do it.
 - **OQ-M5** — Must `passwordlastchange` be updated on every password write, and
   does any iRedMail component enforce expiry from it? Recorded as unsourced in
   `docs/reference/open-questions-research.md` (OQ-04).
@@ -359,3 +411,14 @@ violated.
   any of them move together — in particular, whether `enablesogo` gates the
   three SOGo character columns? The scope line says only "enabled services", and
   `02-domain.md` §4 enumerates the columns without grouping them.
+- **OQ-M9** — Does deleting a mailbox also remove its `domain_admins` rows — the
+  grants keyed by `username`, for domains other than its own? BR-23 enumerates
+  the `vmail` cascade and reaches only `forwardings` and `deleted_mailboxes`;
+  BR-18 covers Mailward's own database; and
+  `docs/policies/authorization.md` BR-A03 covers only the opposite direction,
+  where deleting a **domain** removes the rows keyed by `domain`. Left as
+  written, deleting an administrator's mailbox leaves `domain_admins` rows
+  naming an account that no longer exists, and a re-created address of the same
+  name silently inherits them. Raised by applying
+  `docs/reference/decisions-needed.md` D1, which does not name this table in the
+  mailbox cascade.
