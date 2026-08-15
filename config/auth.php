@@ -74,7 +74,7 @@ return [
          * gate (docs/policies/authorization.md §6).
          */
         'administrators' => [
-            'driver' => 'eloquent',
+            'driver' => 'mailbox',
             'model' => Mailbox::class,
         ],
     ],

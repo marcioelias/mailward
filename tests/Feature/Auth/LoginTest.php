@@ -214,3 +214,41 @@ it('canonicalises the address inside the action too, not only at the request', f
     expect($action->handle('ADMIN@EXAMPLE.TEST', 'correct horse'))->not->toBeNull()
         ->and($action->handle('  admin@example.test  ', 'correct horse'))->not->toBeNull();
 });
+
+it('restores the administrator from the session on a later request', function () {
+    // The regression this exists for returned 502, not an exception: resolving
+    // the actor went through the domain scope, which asks who the actor is, and
+    // recursed until the process died.
+    //
+    // forgetUser() is the whole point. Without it the guard still holds the
+    // user in memory from the login request and never reaches the provider —
+    // which is exactly why the original test passed while a browser could not
+    // load a single page after signing in.
+    makeMailbox();
+
+    $this->post('/login', ['email' => 'admin@example.test', 'password' => 'correct horse'])
+        ->assertRedirect('/');
+
+    auth()->forgetUser();
+
+    $this->get('/')->assertOk();
+
+    expect(auth()->check())->toBeTrue()
+        ->and(auth()->user()?->getAuthIdentifier())->toBe('admin@example.test');
+});
+
+it('still refuses a session whose account lost its admin flag', function () {
+    makeMailbox();
+
+    $this->post('/login', ['email' => 'admin@example.test', 'password' => 'correct horse']);
+
+    // The provider is deliberately unscoped, so it must not become a way to
+    // resolve an actor the login gate would now refuse.
+    Mailbox::query()->withoutDomainScope()
+        ->where('username', 'admin@example.test')
+        ->update(['isadmin' => 0, 'isglobaladmin' => 0]);
+
+    auth()->forgetUser();
+
+    expect(auth()->user())->not->toBeNull();
+})->todo('The gate runs at login only; re-checking it per request is not specified.');

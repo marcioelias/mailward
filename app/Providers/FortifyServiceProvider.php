@@ -5,9 +5,12 @@ declare(strict_types=1);
 namespace App\Providers;
 
 use App\Actions\AuthenticateAdministrator;
+use App\Support\Authorization\MailboxUserProvider;
 use App\Support\PasswordScheme\SchemeRegistry;
 use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Str;
@@ -23,6 +26,16 @@ final class FortifyServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        /*
+         * Restoring the actor from the session cannot be domain-scoped: the
+         * scope needs to know who the actor is, so scoping this query asks the
+         * question of itself and recurses until the process dies.
+         */
+        Auth::provider('mailbox', fn (Application $app, array $config): MailboxUserProvider => new MailboxUserProvider(
+            $app['hash'],
+            $config['model'],
+        ));
+
         Fortify::loginView(fn () => Inertia::render('Auth/Login'));
 
         Fortify::authenticateUsing(function (Request $request) {
