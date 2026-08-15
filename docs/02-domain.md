@@ -20,14 +20,24 @@ These apply to nearly every table and are the source of most surprises.
 iRedMail stores every address in lower case. Nothing in the schema enforces it.
 
 - Postfix folds lookup keys to lower case, so **delivery** tolerates mixed case.
-- iRedMail's shipped Dovecot config does **not** set `auth_username_format`,
-  so **authentication** does not normalise anything.
+- iRedMail's shipped Dovecot config does not set `auth_username_format`, but
+  the setting's **default lowercases** — `%Lu` in Dovecot 2.3,
+  `%{user | lower}` in 2.4 — so **authentication always looks up a lower case
+  address**, whatever the client typed. On the 2.4 path iRedMail lowercases a
+  second time inside the SQL query.
 - MySQL's `utf8mb4_general_ci` collation then makes lookups case-insensitive by
   accident; PostgreSQL does not.
 
-Net effect: a mixed-case row works on MySQL and silently breaks login on
-PostgreSQL. Mailward canonicalises every address to lower case at the request
-boundary — `docs/decisions/0005-lowercase-canonical-addresses.md`.
+Net effect: a mixed-case row works on MySQL and is **unreachable** on
+PostgreSQL. Not merely awkward to log into — the lookup key is always lower
+case, so the row can never be matched, and the userdb lookup fails alongside
+the passdb one. The account has no home and receives no mail. It is a dead
+account.
+
+Mailward canonicalises every address to lower case at the request boundary —
+`docs/decisions/0005-lowercase-canonical-addresses.md`, whose Context carries a
+correction on this exact point. Sourced in
+`docs/reference/current-iredmail-behaviour.md` §Q3.
 
 ### 1.2 Sentinel dates, not NULL
 
