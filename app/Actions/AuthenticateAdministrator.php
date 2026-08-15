@@ -31,6 +31,16 @@ final class AuthenticateAdministrator
 
     public function handle(string $address, string $password): ?Mailbox
     {
+        /*
+         * Canonicalised again here, not only at the request boundary
+         * (ADR-0005). Without it this lookup is driver-dependent: MySQL's
+         * utf8mb4_general_ci matches a mixed-case address by accident while
+         * PostgreSQL does not, so the same call would admit an account on one
+         * driver and deny it on the other. Consoles and tests reach this
+         * method without passing through a FormRequest.
+         */
+        $address = mb_strtolower(trim($address));
+
         if ($address === '' || $password === '') {
             return null;
         }

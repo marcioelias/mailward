@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Actions\AuthenticateAdministrator;
 use App\Models\Mail\Domain;
 use App\Models\Mail\Mailbox;
 use App\Support\PasswordScheme\SchemeRegistry;
@@ -200,4 +201,16 @@ it('signs out', function () {
     $this->post('/logout')->assertRedirect();
 
     expect(auth()->check())->toBeFalse();
+});
+
+it('canonicalises the address inside the action too, not only at the request', function () {
+    // Without this the lookup is driver-dependent: MySQL's collation matches a
+    // mixed-case address by accident, PostgreSQL does not. A console command
+    // or a test reaching the action directly must behave the same on both.
+    makeMailbox();
+
+    $action = app(AuthenticateAdministrator::class);
+
+    expect($action->handle('ADMIN@EXAMPLE.TEST', 'correct horse'))->not->toBeNull()
+        ->and($action->handle('  admin@example.test  ', 'correct horse'))->not->toBeNull();
 });
