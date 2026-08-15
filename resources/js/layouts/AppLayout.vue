@@ -1,105 +1,81 @@
 <script setup lang="ts">
-import { Link, router, usePage } from "@inertiajs/vue3";
-import { computed } from "vue";
+import { Link, router, usePage } from '@inertiajs/vue3'
+import {
+    MeAdminLayout,
+    MeDropdownItem,
+    MeNavItem,
+    MeThemeToggle,
+    MeToasts,
+    MeUserMenu,
+} from '@my-eyes/vue'
+import { computed } from 'vue'
 
-defineProps<{ title?: string; subtitle?: string }>();
+defineProps<{ title?: string; subtitle?: string }>()
 
-interface NavItem {
-    label: string;
-    route: string;
-}
+const page = usePage()
+
+const currentPath = computed(() => new URL(page.url, 'http://localhost').pathname)
+
+/** MeNavItem requires `active` explicitly; it does not compare URLs itself. */
+const isCurrent = (route: string): boolean =>
+    currentPath.value === route || currentPath.value.startsWith(`${route}/`)
 
 /**
- * Grows as features land. An entry appears here only once its route exists,
- * so the navigation never offers a screen that is not implemented.
+ * MeNavItem renders a plain anchor, which would reload the whole document.
+ * It spreads its attributes onto that anchor, so intercepting the click and
+ * handing the visit back to Inertia is enough. A prop letting the component
+ * render as an Inertia Link would remove this adapter — worth raising with
+ * the package.
  */
-const navigation: NavItem[] = [{ label: "Domains", route: "/domains" }];
+const visit = (href: string) => (event: MouseEvent): void => {
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) {
+        return
+    }
 
-const page = usePage();
+    event.preventDefault()
+    router.visit(href)
+}
 
-const currentPath = computed(
-    () => new URL(page.url, "http://localhost").pathname,
-);
-
-const isCurrent = (route: string): boolean =>
-    currentPath.value === route || currentPath.value.startsWith(`${route}/`);
+const actor = computed(() => (page.props as { actor?: { address?: string } }).actor)
 
 const signOut = (): void => {
-    router.post("/logout");
-};
+    router.post('/logout')
+}
 </script>
 
-<!--
-    The admin shell exists as a Blade component in my-eyes but not as a Vue one
-    — the Vue package covers the table and the primitives around it. So the
-    markup is rendered here against the package's own classes rather than
-    hand-written styling, which is what keeps this from drifting away from the
-    Blade side of the design system.
--->
 <template>
-    <div class="me-shell">
-        <aside class="me-sidebar">
-            <div class="me-sidebar__header">
-                <Link href="/" class="me-sidebar__brand">Mailward</Link>
-            </div>
+    <MeAdminLayout :heading="title" :subheading="subtitle">
+        <template #brand>
+            <Link href="/">Mailward</Link>
+        </template>
 
-            <div class="me-sidebar__body">
-                <nav v-if="navigation.length" class="me-nav">
-                    <Link
-                        v-for="item in navigation"
-                        :key="item.route"
-                        :href="item.route"
-                        class="me-nav__item"
-                        :aria-current="
-                            isCurrent(item.route) ? 'page' : undefined
-                        "
-                    >
-                        {{ item.label }}
-                    </Link>
-                </nav>
-            </div>
-        </aside>
+        <template #nav>
+            <MeNavItem href="/" icon="home" :active="currentPath === '/'" @click="visit('/')">
+                Status
+            </MeNavItem>
 
-        <div class="me-shell__main">
-            <header class="me-topbar">
-                <span class="me-topbar__title">{{ title }}</span>
-                <span class="me-topbar__spacer" />
+            <MeNavItem
+                href="/domains"
+                icon="mail"
+                :active="isCurrent('/domains')"
+                @click="visit('/domains')"
+            >
+                Domains
+            </MeNavItem>
+        </template>
 
-                <!--
-                    The theme control is a DOM binding from @my-eyes/core rather
-                    than a Vue component: any element carrying data-me-theme
-                    cycles system, light and dark.
-                -->
-                <button
-                    type="button"
-                    class="me-btn me-btn--ghost me-btn--icon"
-                    data-me-theme
-                >
-                    <span class="me-theme-icon-system">◐</span>
-                    <span class="me-theme-icon-light">☀</span>
-                    <span class="me-theme-icon-dark">☾</span>
-                    <span class="me-sr-only">Toggle theme</span>
-                </button>
+        <template #topbar>
+            <MeThemeToggle />
+        </template>
 
-                <button
-                    type="button"
-                    class="me-btn me-btn--ghost me-btn--sm"
-                    @click="signOut"
-                >
-                    Sign out
-                </button>
-            </header>
+        <template #user>
+            <MeUserMenu :name="actor?.address ?? ''" :email="actor?.address ?? ''">
+                <MeDropdownItem icon="log-out" @click="signOut">Sign out</MeDropdownItem>
+            </MeUserMenu>
+        </template>
 
-            <main class="me-content">
-                <div v-if="title" class="me-content__header">
-                    <h1 class="me-content__heading">{{ title }}</h1>
-                    <p v-if="subtitle" class="me-content__subheading">
-                        {{ subtitle }}
-                    </p>
-                </div>
+        <slot />
 
-                <slot />
-            </main>
-        </div>
-    </div>
+        <MeToasts position="bottom-end" />
+    </MeAdminLayout>
 </template>

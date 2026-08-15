@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Head, Link, router, useForm } from '@inertiajs/vue3'
-import { MeAlert, MeBadge, MeButton, MeInput } from '@my-eyes/vue'
+import { MeAlert, MeBadge, MeButton, MeCard, MeInput, MeModal } from '@my-eyes/vue'
 import { ref, watch } from 'vue'
 import AppLayout from '@/layouts/AppLayout.vue'
 
@@ -48,15 +48,18 @@ const setActive = (row: DomainRow): void => {
     toggle.post(`/domains/${row.domain}/active`, { preserveScroll: true })
 }
 
-const destroy = (row: DomainRow): void => {
-    const warning =
-        `Delete ${row.domain}?\n\n` +
-        `This also deletes ${row.counts.mailboxes} mailbox(es), ` +
-        `${row.counts.aliases} alias(es) and every forwarding in the domain. ` +
-        `Mail files are removed by iRedMail's own cron afterwards.\n\nThis cannot be undone.`
+/*
+ * Deleting a domain destroys every account inside it, so the confirmation
+ * names what will actually be lost rather than asking "are you sure".
+ */
+const pendingDeletion = ref<DomainRow | null>(null)
 
-    if (window.confirm(warning)) {
+const confirmDeletion = (): void => {
+    const row = pendingDeletion.value
+
+    if (row) {
         router.delete(`/domains/${row.domain}`)
+        pendingDeletion.value = null
     }
 }
 </script>
@@ -125,7 +128,12 @@ const destroy = (row: DomainRow): void => {
                                 <MeButton variant="ghost" size="sm" @click="setActive(row)">
                                     {{ row.active ? 'Disable' : 'Enable' }}
                                 </MeButton>
-                                <MeButton variant="ghost" size="sm" @click="destroy(row)">
+                                <MeButton
+                                    variant="ghost"
+                                    size="sm"
+                                    data-me-modal-open="confirm-domain-deletion"
+                                    @click="pendingDeletion = row"
+                                >
                                     Delete
                                 </MeButton>
                             </template>
@@ -145,5 +153,26 @@ const destroy = (row: DomainRow): void => {
                 />
             </nav>
         </div>
+
+        <MeModal
+            id="confirm-domain-deletion"
+            variant="danger"
+            icon="alert-triangle"
+            :title="`Delete ${pendingDeletion?.domain}?`"
+            confirm="Delete the domain"
+            cancel="Keep it"
+            @confirm="confirmDeletion"
+        >
+            <p>
+                This also deletes
+                <strong>{{ pendingDeletion?.counts.mailboxes }} mailbox(es)</strong>,
+                <strong>{{ pendingDeletion?.counts.aliases }} alias(es)</strong>
+                and every forwarding in the domain.
+            </p>
+            <p>
+                The mail files are removed afterwards by iRedMail's own cron job. This cannot
+                be undone.
+            </p>
+        </MeModal>
     </AppLayout>
 </template>

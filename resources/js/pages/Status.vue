@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Head } from "@inertiajs/vue3";
-import { MeAlert, MeBadge } from "@my-eyes/vue";
+import { MeAlert, MeBadge, MeCard } from "@my-eyes/vue";
 import { computed } from "vue";
 import AppLayout from "@/layouts/AppLayout.vue";
 
@@ -38,15 +38,14 @@ const driverLabel = computed(() => {
         subtitle="Mailward is connected to the mail server through the database iRedMail created."
     >
         <div class="me-stack">
-            <div class="me-card">
-                <div class="me-card__header">
-                    <h2 class="me-card__title">iRedMail database</h2>
+            <MeCard title="iRedMail database">
+                <template #actions>
                     <MeBadge :variant="healthy ? 'success' : 'warning'">
                         {{ healthy ? "Connected" : "Attention" }}
                     </MeBadge>
-                </div>
+                </template>
 
-                <div class="me-card__body">
+                <div>
                     <table v-if="backend.connected" class="me-table">
                         <tbody>
                             <tr>
@@ -80,14 +79,12 @@ const driverLabel = computed(() => {
                         {{ backend.missingTables.join(", ") }}.
                     </MeAlert>
                 </div>
-            </div>
+            </MeCard>
 
             <p class="me-hint">
-                Nothing is implemented beyond this page. The specification lives
-                in
-                <code>docs/</code> and is written before the code; the features
-                it describes are waiting on decisions recorded in
-                <code>docs/reference/decisions-needed.md</code>.
+                Domains are managed from this panel. The remaining features are
+                specified in <code>docs/</code> and wait on the decisions
+                recorded in <code>docs/reference/decisions-needed.md</code>.
             </p>
         </div>
     </AppLayout>

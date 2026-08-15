@@ -38,6 +38,14 @@ class HandleInertiaRequests extends Middleware
         return [
             ...parent::share($request),
             'status' => fn () => $request->session()->get('status'),
+
+            // For the user menu, and for showing or hiding controls. The
+            // server authorises again on every request whatever the UI
+            // offered (docs/policies/authorization.md §4).
+            'actor' => fn (): ?array => $request->user() === null ? null : [
+                'address' => $request->user()->getAuthIdentifier(),
+                'isGlobalAdmin' => (bool) $request->user()->isglobaladmin,
+            ],
             //
         ];
     }

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Head, Link, useForm } from '@inertiajs/vue3'
-import { MeAlert, MeButton, MeField, MeInput } from '@my-eyes/vue'
+import { MeAlert, MeButton, MeCard, MeField, MeInput, MeNumeric } from '@my-eyes/vue'
 import { computed } from 'vue'
 import AppLayout from '@/layouts/AppLayout.vue'
 
@@ -50,8 +50,8 @@ const submit = (): void => {
                 Some fields need attention.
             </MeAlert>
 
-            <div class="me-card">
-                <div class="me-card__body me-stack">
+            <MeCard>
+                <div class="me-stack">
                     <MeField
                         label="Domain name"
                         for="domain"
@@ -73,17 +73,12 @@ const submit = (): void => {
                         <MeInput id="description" v-model="form.description" />
                     </MeField>
                 </div>
-            </div>
+            </MeCard>
 
-            <div class="me-card">
-                <div class="me-card__header">
-                    <h2 class="me-card__title">Limits</h2>
-                    <p class="me-card__description">Zero means unlimited, not zero allowed.</p>
-                </div>
-
-                <div class="me-card__body me-stack">
+            <MeCard title="Limits" description="Zero means unlimited, not zero allowed.">
+                <div class="me-stack">
                     <MeField label="Mailboxes" for="mailboxes" required :error="form.errors.mailboxes">
-                        <MeInput id="mailboxes" v-model="form.mailboxes" type="number" min="0" required />
+                        <MeNumeric id="mailboxes" v-model="form.mailboxes" :min="0" :decimals="0" required />
                     </MeField>
 
                     <MeField
@@ -93,7 +88,7 @@ const submit = (): void => {
                         :error="form.errors.aliases"
                         hint="Counts standalone alias accounts only — not per-user aliases or alias domains."
                     >
-                        <MeInput id="aliases" v-model="form.aliases" type="number" min="0" required />
+                        <MeNumeric id="aliases" v-model="form.aliases" :min="0" :decimals="0" required />
                     </MeField>
 
                     <MeField
@@ -103,14 +98,14 @@ const submit = (): void => {
                         :error="form.errors.maillists"
                         hint="Stored and editable, but not enforced — mailing lists are outside this version."
                     >
-                        <MeInput id="maillists" v-model="form.maillists" type="number" min="0" required />
+                        <MeNumeric id="maillists" v-model="form.maillists" :min="0" :decimals="0" required />
                     </MeField>
 
                     <MeField label="Maximum quota (bytes)" for="maxquota" required :error="form.errors.maxquota">
-                        <MeInput id="maxquota" v-model="form.maxquota" type="number" min="0" required />
+                        <MeNumeric id="maxquota" v-model="form.maxquota" :min="0" :decimals="0" required />
                     </MeField>
                 </div>
-            </div>
+            </MeCard>
 
             <div class="me-row me-row--end">
                 <Link href="/domains" class="me-btn me-btn--ghost">Cancel</Link>
