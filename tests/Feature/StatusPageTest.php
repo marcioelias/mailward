@@ -9,7 +9,7 @@ use Inertia\Testing\AssertableInertia;
 /** A signed-in administrator, built without touching the mail database. */
 function signedInAdministrator(): Mailbox
 {
-    return new Mailbox(['username' => 'admin@example.test', 'isglobaladmin' => true]);
+    return new Mailbox(['username' => 'admin@example.test', 'isglobaladmin' => true, 'active' => true]);
 }
 
 it('renders the status page with the mail backend it found', function () {

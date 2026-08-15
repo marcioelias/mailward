@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Http\Controllers\DomainController;
 use App\Http\Controllers\StatusController;
+use App\Http\Middleware\EnsureStillAnAdministrator;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -14,7 +15,7 @@ use Illuminate\Support\Facades\Route;
  * Deny by default is the posture, not a convention: a route added without a
  * guard must fail closed.
  */
-Route::middleware('auth')->group(function (): void {
+Route::middleware(['auth', EnsureStillAnAdministrator::class])->group(function (): void {
     Route::get('/', StatusController::class)->name('status');
 
     /*

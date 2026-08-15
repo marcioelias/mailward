@@ -237,18 +237,61 @@ it('restores the administrator from the session on a later request', function ()
         ->and(auth()->user()?->getAuthIdentifier())->toBe('admin@example.test');
 });
 
-it('still refuses a session whose account lost its admin flag', function () {
-    makeMailbox();
+describe('the gate runs on every request, not only at login (Q13)', function () {
+    /**
+     * Without this, demoting an administrator leaves them working inside the
+     * panel until they choose to sign out.
+     */
+    function signInThen(array $revocation): void
+    {
+        makeMailbox();
 
-    $this->post('/login', ['email' => 'admin@example.test', 'password' => 'correct horse']);
+        test()->post('/login', ['email' => 'admin@example.test', 'password' => 'correct horse']);
 
-    // The provider is deliberately unscoped, so it must not become a way to
-    // resolve an actor the login gate would now refuse.
-    Mailbox::query()->withoutDomainScope()
-        ->where('username', 'admin@example.test')
-        ->update(['isadmin' => 0, 'isglobaladmin' => 0]);
+        Mailbox::query()->withoutDomainScope()
+            ->where('username', 'admin@example.test')
+            ->update($revocation);
 
-    auth()->forgetUser();
+        auth()->forgetUser();
+    }
 
-    expect(auth()->user())->not->toBeNull();
-})->todo('The gate runs at login only; re-checking it per request is not specified.');
+    it('ends the session when the administrator flag is cleared', function () {
+        signInThen(['isadmin' => 0, 'isglobaladmin' => 0]);
+
+        $this->get('/')->assertRedirect('/login');
+
+        expect(auth()->check())->toBeFalse();
+    });
+
+    it('ends the session when the account is deactivated', function () {
+        signInThen(['active' => 0]);
+
+        $this->get('/')->assertRedirect('/login');
+    });
+
+    it('ends the session when the account expires', function () {
+        signInThen(['expired' => now()->subMinute()]);
+
+        $this->get('/')->assertRedirect('/login');
+    });
+
+    it('ends the session when the account is deleted outright', function () {
+        makeMailbox();
+        $this->post('/login', ['email' => 'admin@example.test', 'password' => 'correct horse']);
+
+        Mailbox::query()->withoutDomainScope()->where('username', 'admin@example.test')->delete();
+        auth()->forgetUser();
+
+        $this->get('/')->assertRedirect('/login');
+    });
+
+    it('leaves an untouched session alone', function () {
+        makeMailbox();
+        $this->post('/login', ['email' => 'admin@example.test', 'password' => 'correct horse']);
+
+        auth()->forgetUser();
+
+        $this->get('/')->assertOk();
+        expect(auth()->check())->toBeTrue();
+    });
+});

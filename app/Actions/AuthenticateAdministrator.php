@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Actions;
 
 use App\Models\Mail\Mailbox;
+use App\Support\Authorization\AdministratorGate;
 use App\Support\PasswordScheme\SchemeRegistry;
 use App\Support\PasswordScheme\UnsupportedScheme;
 use Illuminate\Support\Facades\Log;
@@ -69,11 +70,7 @@ final class AuthenticateAdministrator
             return null;
         }
 
-        if (! $this->isUsable($mailbox)) {
-            return null;
-        }
-
-        if (! $mailbox->isadmin && ! $mailbox->isglobaladmin) {
+        if (! AdministratorGate::passes($mailbox)) {
             /*
              * Recorded as an authorisation failure rather than an
              * authentication one: the credentials were correct
@@ -111,23 +108,6 @@ final class AuthenticateAdministrator
 
             return false;
         }
-    }
-
-    /**
-     * `active = 0` or an expiry in the past denies access at both steps
-     * (docs/policies/authorization.md §6).
-     *
-     * Expiry is a comparison against now, never equality against a sentinel:
-     * the two drivers ship different "never expires" values
-     * (docs/reference/schema-type-matrix.md, D2).
-     */
-    private function isUsable(Mailbox $mailbox): bool
-    {
-        if (! $mailbox->active) {
-            return false;
-        }
-
-        return $mailbox->expired === null || $mailbox->expired->isFuture();
     }
 
     /**

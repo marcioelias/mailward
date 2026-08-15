@@ -23,7 +23,7 @@ beforeEach(function () {
      * global admin: the domain scope denies everything without an actor, by
      * design (docs/policies/authorization.md §3).
      */
-    $this->actingAs(new Mailbox(['username' => 'root@example.test', 'isglobaladmin' => true]));
+    $this->actingAs(new Mailbox(['username' => 'root@example.test', 'isglobaladmin' => true, 'active' => true]));
 
     DB::connection('vmail')->table('mailbox')->delete();
     DB::connection('vmail')->table('domain')->delete();

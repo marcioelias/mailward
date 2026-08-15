@@ -19,7 +19,7 @@ beforeEach(function () {
 
 function globalAdmin(): Mailbox
 {
-    return new Mailbox(['username' => 'root@example.test', 'isglobaladmin' => true, 'isadmin' => true]);
+    return new Mailbox(['username' => 'root@example.test', 'isglobaladmin' => true, 'isadmin' => true, 'active' => true]);
 }
 
 function domainAdmin(string ...$domains): Mailbox
@@ -35,7 +35,7 @@ function domainAdmin(string ...$domains): Mailbox
         ]);
     }
 
-    return new Mailbox(['username' => 'da@example.test', 'isadmin' => true, 'isglobaladmin' => false]);
+    return new Mailbox(['username' => 'da@example.test', 'isadmin' => true, 'isglobaladmin' => false, 'active' => true]);
 }
 
 function makeDomain(string $name, array $attributes = []): Domain
@@ -265,7 +265,7 @@ describe('a grant only counts while it is live (Q1)', function () {
 
     function actorWithGrants(): Mailbox
     {
-        return new Mailbox(['username' => 'da@example.test', 'isadmin' => true, 'isglobaladmin' => false]);
+        return new Mailbox(['username' => 'da@example.test', 'isadmin' => true, 'isglobaladmin' => false, 'active' => true]);
     }
 
     it('ignores a grant that has been switched off', function () {
