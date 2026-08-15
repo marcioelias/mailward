@@ -155,3 +155,33 @@ it('refuses to be configured to generate an unsalted digest', function () {
         ->and(fn () => registry('PLAIN-MD5')->hash('hunter2'))
         ->toThrow(CannotGeneratePassword::class);
 });
+
+describe('reporting a password that is weaker than what we would write', function () {
+    it('sees through the label to the bcrypt work factor', function () {
+        // Both are {CRYPT}$2a$ — the label says they are the same scheme, and
+        // 5 is thirty-two iterations against a thousand.
+        $weak = '{CRYPT}'.password_hash('x', PASSWORD_BCRYPT, ['cost' => 5]);
+        $fine = '{CRYPT}'.password_hash('x', PASSWORD_BCRYPT, ['cost' => 12]);
+
+        expect(registry()->weakness($weak))->toContain('cost 5')
+            ->and(registry()->weakness($fine))->toBeNull();
+    });
+
+    it('names md5crypt as the one that may already have stopped working', function () {
+        expect(registry()->weakness('{CRYPT}$1$abcdefgh$0123456789012345678901'))
+            ->toContain('Dovecot 2.4');
+    });
+
+    it('reports cleartext and an empty password', function () {
+        expect(registry()->weakness('{PLAIN}hunter2'))->toContain('clear text')
+            ->and(registry()->weakness(''))->toContain('no password');
+    });
+
+    it('reports a scheme it cannot read, rather than calling it fine', function () {
+        expect(registry()->weakness('{SCRAM-SHA-256}abc'))->toContain('cannot verify');
+    });
+
+    it('says nothing about a password that is already what we would write', function () {
+        expect(registry()->weakness(registry()->hash('hunter2')))->toBeNull();
+    });
+});

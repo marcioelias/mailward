@@ -75,26 +75,41 @@ nothing parses this column, and Dovecot creates the directory itself.
 
 ## 3. Password schemes — E3, answered, and it is worse than expected
 
-Measured across 1,151 accounts:
+Measured on the FreeBSD 11.2 server, corrected 2026-08-15 — this supersedes an
+earlier count that reported traditional DES accounts. **There are none.**
 
-| Stored scheme | Accounts | Verifiable by Mailward | Accepted by Dovecot 2.4 |
-|---|---|---|---|
-| `{CRYPT}$2y$` bcrypt | 429 | yes | yes |
-| `{CRYPT}$1$` md5crypt | 191 | yes | **disabled by default** |
-| `{CRYPT}$2a$` bcrypt | 153 | yes | yes |
-| `{BLF-CRYPT}$2y$` / `$2a$` | 90 | yes | yes |
-| `{CRYPT}` traditional DES, 13 chars, no `$` | ~288 | yes | **disabled by default** |
+| Stored scheme | Cost | Accounts | Verifiable by Mailward | Accepted by Dovecot 2.4 |
+|---|---|---|---|---|
+| bcrypt `{CRYPT}` | 10 | 353 | yes | yes |
+| bcrypt `{CRYPT}` | 12 | 82 | yes | yes |
+| bcrypt `{BLF-CRYPT}` | **5** | 84 | yes | yes |
+| md5crypt `{CRYPT}$1$` | — | 130 | yes | **disabled by default** |
+| | | **649** | | |
 
-Every one of these verifies through `SchemeRegistry` today — `CryptScheme`
-delegates to PHP's `crypt()`, which reads the algorithm from the value's own
-magic and handles bare DES.
+Two problems, and they are not the same problem.
 
-**That is the problem, not the reassurance.** The destination runs Dovecot 2.4,
-which disables the MD5 family and DES by default. So for **roughly 479 accounts
-— 42% of the server** — Mailward would accept a password that IMAP refuses.
-The administrator signs into the panel and their mail client fails, which is
-the exact asymmetry recorded as C3 and the reason `authentication.md` BR-10
-was written the way it was.
+**130 md5crypt accounts break on the move.** Dovecot 2.4 disables the MD5
+family by default, and Debian 13 is the destination. Mailward verifies them, so
+on that server it would admit an administrator whose mail client can no longer
+authenticate. This is the operating system and mail server's to resolve before
+the migration, not Mailward's — see below.
+
+**84 bcrypt accounts at cost 5 do not break anything.** Dovecot accepts them
+normally. They are simply weak: cost 5 is thirty-two iterations where cost 10
+is a thousand and 12 is four thousand. Nothing fails, nobody is told, and the
+label gives no hint — `{CRYPT}$2a$` at cost 5 is spelled exactly like
+`{CRYPT}$2a$` at cost 12.
+
+That last point was a gap in Mailward and is now closed:
+`SchemeRegistry::weakness()` reads the work factor rather than trusting the
+label, and reports md5crypt, cleartext, an unreadable scheme and an empty
+password alongside it. It reports and never rewrites — the column is the
+account's real mail password.
+
+**One figure to reconcile:** the survey counted 1,151 mailboxes and this
+inventory totals 649. The difference is not explained, and it matters: an
+account with no usable password cannot sign in anywhere. Worth a count of
+`mailbox` rows whose `password` is empty.
 
 **Out of scope, decided 2026-08-15.** This is a property of the operating
 system's crypt library and the mail server's configuration, not of Mailward,
