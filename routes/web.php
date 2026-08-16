@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Http\Controllers\AccountController;
 use App\Http\Controllers\AliasDomainController;
 use App\Http\Controllers\DomainController;
 use App\Http\Controllers\MailboxController;
@@ -19,6 +20,16 @@ use Illuminate\Support\Facades\Route;
  */
 Route::middleware(['auth', EnsureStillAnAdministrator::class])->group(function (): void {
     Route::get('/', StatusController::class)->name('status');
+
+    /*
+     * The acting administrator's own account, exempt from the domain scope:
+     * their mailbox may sit in a domain they do not administer, and they must
+     * always be able to rotate their own mail password
+     * (docs/features/authentication.md BR-23).
+     */
+    Route::get('/account', [AccountController::class, 'edit'])->name('account.edit');
+    Route::put('/account', [AccountController::class, 'update'])->name('account.update');
+    Route::put('/account/password', [AccountController::class, 'updatePassword'])->name('account.password');
 
     /*
      * Only the listing is reachable by a domain admin, and it is scoped in the

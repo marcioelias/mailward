@@ -228,6 +228,32 @@ nothing (`domain-admins.md` BR-10).
 The remember-me token store is required by `01-architecture.md` §5 but is not
 enumerated in `02-domain.md` §13 — OQ-AUTH-04.
 
+- **BR-23** — **An administrator may always reach their own account**,
+  whatever the domain scope says. The scope answers "which domains may this
+  actor see", and an administrator's own mailbox may sit in a domain they do
+  not administer — a global admin demoted to one domain, or an account created
+  in a domain later reassigned. Without this they would be hidden from
+  themselves and unable to change their own mail password, which is the one
+  password they must always be able to rotate.
+
+  The exemption is narrow and explicit: it covers the single row whose
+  `username` equals the acting address, reached through a route of its own, and
+  it widens nothing else. It is not a hole in the scope; it is the observation
+  that you always administer yourself.
+
+- **BR-24** — **Own-account editing covers the display name and the
+  mail password, and nothing else.** Not the quota, not the service toggles,
+  not `active`, and not the administrator flags — those are administrative
+  decisions about an account, and letting an actor make them about themselves
+  reintroduces the self-escalation BR-A02 exists to prevent. Changing the
+  password goes through the same screen and the same rules as any other
+  account.
+
+- **BR-25** — **Every write here is audited under the acting address
+  exactly as any other write**, with no special casing. An administrator
+  changing their own password is precisely the event an audit reader wants to
+  find.
+
 ## Contracts
 
 Inertia pages and form endpoints. No JSON API is exposed for the panel's own use
@@ -238,6 +264,9 @@ normalised in `prepareForValidation()` (BR-09).
 |---|---|---|
 | GET | `/login` | `Auth/Login` — guest only; carries no prop that reveals whether any address exists |
 | POST | `/login` | fields `email`, `password`, `remember`. Success: 302 to the intended URL or `/dashboard`. Failure: 302 back with the generic message (BR-07). Throttled: 429 (BR-08) |
+| GET | `/account` | `Account/Edit` — the acting administrator's own row, exempt from the domain scope (BR-23) |
+| PUT | `/account` | Display name only (BR-24) |
+| PUT | `/account/password` | The acting administrator's own mail password |
 | POST | `/logout` | 302 to `/login`; the session is invalidated |
 
 Error cases:
@@ -396,6 +425,17 @@ anonymous --submit--> [step 1: credentials]
   enforcement; no migration creates `two_factor_secrets`; and no sign-in
   response is ever an intermediate challenge — every outcome is a session or the
   generic denial. *(BR-22)*
+
+- **AC-30** — Given a domain admin whose own mailbox lies in a domain
+  they do not administer, when they open their own account, then it is shown;
+  and when they open any other mailbox in that domain, the response is `404`.
+- **AC-31** — Given an administrator on their own account, when they
+  submit a quota, a service toggle, `active` or an administrator flag, then
+  none of them is written.
+- **AC-32** — Given an administrator changing their own mail password,
+  then `mailbox.password` holds the new value in the generative scheme, and an
+  `audit_log` entry records the change under their own address without the
+  password or the hash.
 
 ## Out of Scope
 

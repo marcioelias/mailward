@@ -2,9 +2,9 @@
 import { Link, router, usePage } from '@inertiajs/vue3'
 import {
     MeAdminLayout,
+    MeDropdownDivider,
     MeDropdownItem,
     MeNavItem,
-    MeThemeToggle,
     MeToasts,
     MeUserMenu,
 } from '@my-eyes/vue'
@@ -36,7 +36,9 @@ const visit = (href: string) => (event: MouseEvent): void => {
     router.visit(href)
 }
 
-const actor = computed(() => (page.props as { actor?: { address?: string } }).actor)
+const actor = computed(
+    () => (page.props as { actor?: { address?: string; name?: string } }).actor,
+)
 
 const signOut = (): void => {
     router.post('/logout')
@@ -82,12 +84,12 @@ const signOut = (): void => {
             </MeNavItem>
         </template>
 
-        <template #topbar>
-            <MeThemeToggle />
-        </template>
-
         <template #user>
-            <MeUserMenu :name="actor?.address ?? ''" :email="actor?.address ?? ''">
+            <MeUserMenu :name="actor?.name || actor?.address || ''" :email="actor?.address ?? ''">
+                <MeDropdownItem icon="user" @click="visit('/account')($event)">
+                    Your account
+                </MeDropdownItem>
+                <MeDropdownDivider />
                 <MeDropdownItem icon="log-out" @click="signOut">Sign out</MeDropdownItem>
             </MeUserMenu>
         </template>

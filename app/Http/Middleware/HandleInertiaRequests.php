@@ -44,6 +44,7 @@ class HandleInertiaRequests extends Middleware
             // offered (docs/policies/authorization.md §4).
             'actor' => fn (): ?array => $request->user() === null ? null : [
                 'address' => $request->user()->getAuthIdentifier(),
+                'name' => $request->user()->name,
                 'isGlobalAdmin' => (bool) $request->user()->isglobaladmin,
             ],
             //

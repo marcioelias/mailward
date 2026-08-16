@@ -64,6 +64,7 @@ wizard and no seeding. It is usable on first boot.
 - Last login per account
 - Dashboard: account counts, quota totals, domains at their limit
 - Audit log of every write Mailward performs
+- An administrator's own account: display name and mail password
 
 ### Later
 
