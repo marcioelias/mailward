@@ -22,6 +22,7 @@ import {
     MeSelect,
 } from "@my-eyes/vue";
 import { ref, watch } from "vue";
+import RowAction from "@/components/RowAction.vue";
 
 interface MailboxRow {
     username: string;
@@ -181,18 +182,16 @@ const confirmDeletion = (): void => {
                         </MeBadge>
                     </td>
                     <td class="me-table__cell--end">
-                        <Link
+                        <RowAction
+                            label="Edit"
+                            icon="edit"
                             :href="`/mailboxes/${row.username}/edit`"
-                            class="me-btn me-btn--ghost me-btn--sm"
-                        >
-                            Edit
-                        </Link>
-                        <Link
+                        />
+                        <RowAction
+                            label="Change the mail password"
+                            icon="password"
                             :href="`/mailboxes/${row.username}/password`"
-                            class="me-btn me-btn--ghost me-btn--sm"
-                        >
-                            Password
-                        </Link>
+                        />
                         <!--
                             Aliases and forwardings are the contents of one
                             account, so they live under it rather than in a
@@ -200,26 +199,22 @@ const confirmDeletion = (): void => {
                             concepts on that screen, never one merged
                             "forwardings" list (docs/02-domain.md §5).
                         -->
-                        <Link
+                        <RowAction
+                            label="Aliases and forwardings"
+                            icon="routing"
                             :href="`/mailboxes/${row.username}/routing`"
-                            class="me-btn me-btn--ghost me-btn--sm"
-                        >
-                            Aliases
-                        </Link>
-                        <MeButton
-                            variant="ghost"
-                            size="sm"
+                        />
+                        <RowAction
+                            :label="row.active ? 'Disable' : 'Enable'"
+                            :icon="row.active ? 'disable' : 'enable'"
                             @click="setActive(row)"
-                        >
-                            {{ row.active ? "Disable" : "Enable" }}
-                        </MeButton>
-                        <MeButton
-                            variant="ghost"
-                            size="sm"
+                        />
+                        <RowAction
+                            label="Delete"
+                            icon="delete"
+                            variant="danger"
                             @click="askToDelete(row)"
-                        >
-                            Delete
-                        </MeButton>
+                        />
                     </td>
                 </tr>
             </tbody>

@@ -13,7 +13,14 @@ export default { layout: AppLayout };
 
 <script setup lang="ts">
 import { Head, Link, router } from "@inertiajs/vue3";
-import { MeAlert, MeBadge, MeButton, MeInput, MeModal, MeSelect } from "@my-eyes/vue";
+import {
+    MeAlert,
+    MeBadge,
+    MeButton,
+    MeInput,
+    MeModal,
+    MeSelect,
+} from "@my-eyes/vue";
 import { computed, ref, watch } from "vue";
 
 interface AliasRow {
@@ -58,8 +65,8 @@ watch([search, domain], reload);
  * removing the last member. It is flagged rather than prevented, because it
  * accepts mail and delivers it nowhere (BR-20).
  */
-const blackHoles = computed(() =>
-    props.aliases.data.filter((row) => row.members === 0).length,
+const blackHoles = computed(
+    () => props.aliases.data.filter((row) => row.members === 0).length,
 );
 
 const pendingDeletion = ref<AliasRow | null>(null);
@@ -125,7 +132,9 @@ const confirmDeletion = (): void => {
                 <tr v-for="row in aliases.data" :key="row.address">
                     <td>
                         <strong>{{ row.address }}</strong>
-                        <div v-if="row.name" class="me-hint">{{ row.name }}</div>
+                        <div v-if="row.name" class="me-hint">
+                            {{ row.name }}
+                        </div>
                     </td>
                     <td>
                         <MeBadge v-if="row.members === 0" variant="warning">

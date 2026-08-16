@@ -134,7 +134,8 @@ const setGlobal = (grant: boolean): void => {
 /* Domains not already assigned, so the picker cannot offer a no-op. */
 const assignable = computed(() =>
     props.domains.filter(
-        (option) => !(props.administrator?.domains ?? []).includes(option.value),
+        (option) =>
+            !(props.administrator?.domains ?? []).includes(option.value),
     ),
 );
 </script>
@@ -142,9 +143,7 @@ const assignable = computed(() =>
 <template>
     <Head
         :title="
-            editing
-                ? `Manage ${administrator?.address}`
-                : 'Promote an account'
+            editing ? `Manage ${administrator?.address}` : 'Promote an account'
         "
     />
 
@@ -248,10 +247,7 @@ const assignable = computed(() =>
                         the global flag, not from individual assignments.
                     </p>
 
-                    <div
-                        v-if="!administrator?.domains.length"
-                        class="me-empty"
-                    >
+                    <div v-if="!administrator?.domains.length" class="me-empty">
                         <p>
                             No domains assigned. The account can sign in and
                             sees an empty screen.

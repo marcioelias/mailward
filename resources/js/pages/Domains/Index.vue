@@ -22,6 +22,7 @@ import {
     MeModal,
 } from "@my-eyes/vue";
 import { ref, watch } from "vue";
+import RowAction from "@/components/RowAction.vue";
 
 interface DomainRow {
     domain: string;
@@ -176,26 +177,22 @@ const confirmDeletion = (): void => {
                     </td>
                     <td class="me-table__cell--end">
                         <template v-if="can.create">
-                            <Link
+                            <RowAction
+                                label="Edit"
+                                icon="edit"
                                 :href="`/domains/${row.domain}/edit`"
-                                class="me-btn me-btn--ghost me-btn--sm"
-                            >
-                                Edit
-                            </Link>
-                            <MeButton
-                                variant="ghost"
-                                size="sm"
+                            />
+                            <RowAction
+                                :label="row.active ? 'Disable' : 'Enable'"
+                                :icon="row.active ? 'disable' : 'enable'"
                                 @click="setActive(row)"
-                            >
-                                {{ row.active ? "Disable" : "Enable" }}
-                            </MeButton>
-                            <MeButton
-                                variant="ghost"
-                                size="sm"
+                            />
+                            <RowAction
+                                label="Delete"
+                                icon="delete"
+                                variant="danger"
                                 @click="askToDelete(row)"
-                            >
-                                Delete
-                            </MeButton>
+                            />
                         </template>
                     </td>
                 </tr>
