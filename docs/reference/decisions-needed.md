@@ -8,6 +8,8 @@
 > decision. This document is now a record of what was decided and of what still
 > has to be measured.
 
+**Does not occur on the first deployment.** The measured inventory is entirely bcrypt — no md5crypt, no DES — and Dovecot 2.4 accepts bcrypt at any cost, so nothing there verifies in Mailward and fails at IMAP (`docs/reference/observed-install.md` §3). The contradiction stays open because it is about any install, not this one.
+
 Originally: every question the specification left open, deduplicated across the
 nine feature documents and `docs/00-overview.md` §9, grouped by decision rather
 than by feature. Answering a question meant **editing the owning feature
