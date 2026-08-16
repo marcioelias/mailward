@@ -64,6 +64,15 @@ const signOut = (): void => {
             </MeNavItem>
 
             <MeNavItem
+                href="/mailboxes"
+                icon="users"
+                :active="isCurrent('/mailboxes')"
+                @click="visit('/mailboxes')"
+            >
+                Mailboxes
+            </MeNavItem>
+
+            <MeNavItem
                 href="/alias-domains"
                 icon="chevron-right"
                 :active="isCurrent('/alias-domains')"

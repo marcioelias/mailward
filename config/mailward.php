@@ -41,6 +41,31 @@ return [
     |
     */
 
+    /*
+    |--------------------------------------------------------------------------
+    | Mail storage layout
+    |--------------------------------------------------------------------------
+    |
+    | How `mailbox.maildir` is built. Configuration rather than a constant
+    | (docs/decisions/0007-configurable-maildir-and-password-scheme.md):
+    | iRedMail assembles the path from installer settings, and a server
+    | migrated from an older install deliberately preserves the layout it
+    | already had.
+    |
+    | These must match the mail server. Nothing reads the column back, but a
+    | value that disagrees with what Dovecot expects produces an account whose
+    | mail lands somewhere nobody looks.
+    |
+    */
+
+    'maildir' => [
+        'base' => env('MAILWARD_STORAGE_BASE', '/var/vmail'),
+        'node' => env('MAILWARD_STORAGE_NODE', 'vmail1'),
+        'hashed' => env('MAILWARD_MAILDIR_HASHED', true),
+        'prepend_domain' => env('MAILWARD_MAILDIR_PREPEND_DOMAIN', true),
+        'append_timestamp' => env('MAILWARD_MAILDIR_APPEND_TIMESTAMP', true),
+    ],
+
     'audit' => [
         'retention_days' => env('MAILWARD_AUDIT_RETENTION_DAYS'),
     ],

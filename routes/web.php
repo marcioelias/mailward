@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Http\Controllers\AliasDomainController;
 use App\Http\Controllers\DomainController;
+use App\Http\Controllers\MailboxController;
 use App\Http\Controllers\StatusController;
 use App\Http\Middleware\EnsureStillAnAdministrator;
 use Illuminate\Support\Facades\Route;
@@ -45,4 +46,18 @@ Route::middleware(['auth', EnsureStillAnAdministrator::class])->group(function (
     Route::put('/alias-domains/{aliasDomain}', [AliasDomainController::class, 'update'])->name('alias-domains.update');
     Route::post('/alias-domains/{aliasDomain}/active', [AliasDomainController::class, 'setActive'])->name('alias-domains.active');
     Route::delete('/alias-domains/{aliasDomain}', [AliasDomainController::class, 'destroy'])->name('alias-domains.destroy');
+
+    /*
+     * Mailboxes are the contents of a domain rather than the domain record, so
+     * a domain admin may write them within their scope. Every route is scoped
+     * by the model, and the policy is the second barrier.
+     */
+    Route::get('/mailboxes', [MailboxController::class, 'index'])->name('mailboxes.index');
+    Route::get('/mailboxes/create', [MailboxController::class, 'create'])->name('mailboxes.create');
+    Route::post('/mailboxes', [MailboxController::class, 'store'])->name('mailboxes.store');
+    Route::get('/mailboxes/{mailbox}/edit', [MailboxController::class, 'edit'])->name('mailboxes.edit');
+    Route::put('/mailboxes/{mailbox}', [MailboxController::class, 'update'])->name('mailboxes.update');
+    Route::put('/mailboxes/{mailbox}/password', [MailboxController::class, 'updatePassword'])->name('mailboxes.password');
+    Route::post('/mailboxes/{mailbox}/active', [MailboxController::class, 'setActive'])->name('mailboxes.active');
+    Route::delete('/mailboxes/{mailbox}', [MailboxController::class, 'destroy'])->name('mailboxes.destroy');
 });
