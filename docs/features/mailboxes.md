@@ -557,6 +557,25 @@ the locality check of BR-26, the limit of BR-05 and the quota cap of BR-28;
 
 ## Open Questions
 
+- **OQ-M10** — What happens when a domain is **both** a `domain` row and an
+  `alias_domain` row? BR-26 refuses a mailbox whose domain exists only in
+  `alias_domain`, and `alias-domains.md` BR-13 deliberately permits a name to be
+  both. Together they admit a mailbox that BR-26 was written to prevent: Postfix
+  rewrites the alias domain to its target before the mailbox lookup, so a
+  mailbox in the overlapping domain is shadowed by the rewrite and never
+  receives mail. Neither rule is wrong alone.
+
+  Three ways out, none of them obviously right. Refuse mailbox creation in a
+  domain that is also an alias domain — safe, and it makes BR-13's permission
+  narrower than it reads. Warn and allow — honest about iRedMail's own tolerance
+  and leaves a live footgun. Or leave it and rely on the health check to report
+  the overlap, which is where the other silent-dead-account findings already go
+  (`docs/00-overview.md` OQ-06).
+
+  **Unobserved.** The precedence is a property of the mail server's map order,
+  not of the schema, and no probe has established it. E7 already covers the
+  address-level collision; this is the domain-level one.
+
 
 - **OQ-M2** — Does Dovecot auto-create the maildir on first delivery? If it does
   not, the directory must exist before delivery, and Mailward — running

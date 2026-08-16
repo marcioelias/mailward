@@ -92,6 +92,8 @@ domain at all is global-admin only (BR-12).
   not part of. This feature therefore performs no limit check on create, and
   that absence is a decision, not an omission.
 - **BR-13** — **A name may be both an `alias_domain` row and a `domain` row.**
+  A mailbox created inside such a domain may be shadowed by the alias rewrite —
+  see `docs/features/mailboxes.md` OQ-M10, which owns that question.
   This feature refuses no create because the name already exists in `domain`,
   and the domains feature refuses none because the name already exists here
   (`docs/features/domains.md` BR-23). The only uniqueness enforced is BR-04,
