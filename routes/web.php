@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Http\Controllers\AliasDomainController;
 use App\Http\Controllers\DomainController;
 use App\Http\Controllers\StatusController;
 use App\Http\Middleware\EnsureStillAnAdministrator;
@@ -30,4 +31,18 @@ Route::middleware(['auth', EnsureStillAnAdministrator::class])->group(function (
     Route::put('/domains/{domain}', [DomainController::class, 'update'])->name('domains.update');
     Route::post('/domains/{domain}/active', [DomainController::class, 'setActive'])->name('domains.active');
     Route::delete('/domains/{domain}', [DomainController::class, 'destroy'])->name('domains.destroy');
+
+    /*
+     * Same shape as domains, and for the same reason: an alias domain adds a
+     * name to the mail server's namespace, so every write is global-admin only
+     * (docs/features/alias-domains.md BR-12). Visibility is scoped on
+     * target_domain, which is the only column here naming a row in `domain`.
+     */
+    Route::get('/alias-domains', [AliasDomainController::class, 'index'])->name('alias-domains.index');
+    Route::get('/alias-domains/create', [AliasDomainController::class, 'create'])->name('alias-domains.create');
+    Route::post('/alias-domains', [AliasDomainController::class, 'store'])->name('alias-domains.store');
+    Route::get('/alias-domains/{aliasDomain}/edit', [AliasDomainController::class, 'edit'])->name('alias-domains.edit');
+    Route::put('/alias-domains/{aliasDomain}', [AliasDomainController::class, 'update'])->name('alias-domains.update');
+    Route::post('/alias-domains/{aliasDomain}/active', [AliasDomainController::class, 'setActive'])->name('alias-domains.active');
+    Route::delete('/alias-domains/{aliasDomain}', [AliasDomainController::class, 'destroy'])->name('alias-domains.destroy');
 });

@@ -16,7 +16,7 @@ use Throwable;
  * `docs/00-overview.md` §8 requires the same for an unsupported schema. This
  * is the detection half; refusing is a feature that is not specified yet.
  */
-final class InspectMailBackend
+final class InspectMailBackendAction
 {
     /**
      * Tables Mailward reads in v1 (docs/02-domain.md §2–§11). A connection

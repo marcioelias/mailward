@@ -24,7 +24,7 @@ use Illuminate\Support\Facades\DB;
  * sourced but **not yet confirmed against a running install**
  * (`docs/features/mailboxes.md` OQ-M3).
  */
-final class RecordDeletedMailboxes
+final class RecordDeletedMailboxesAction
 {
     public function handle(string $domain): void
     {

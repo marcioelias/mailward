@@ -22,9 +22,9 @@ use Illuminate\Support\Facades\DB;
  * intact and Mailward-side rows already gone, which is recoverable, rather
  * than the reverse.
  */
-final class DeleteDomain
+final class DeleteDomainAction
 {
-    public function __construct(private readonly RecordDeletedMailboxes $recordDeletedMailboxes) {}
+    public function __construct(private readonly RecordDeletedMailboxesAction $recordDeletedMailboxes) {}
 
     public function handle(Domain $domain): void
     {

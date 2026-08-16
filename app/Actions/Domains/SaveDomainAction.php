@@ -18,7 +18,7 @@ use Illuminate\Support\Facades\DB;
  * exists on MySQL and not on PostgreSQL, where the same column defaults to
  * `NOW()`, so relying on the default produces a different row per driver.
  */
-final class SaveDomain
+final class SaveDomainAction
 {
     /**
      * @param  array<string, mixed>  $attributes

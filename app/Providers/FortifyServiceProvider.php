@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Providers;
 
-use App\Actions\AuthenticateAdministrator;
+use App\Actions\AuthenticateAdministratorAction;
 use App\Support\Authorization\MailboxUserProvider;
 use App\Support\PasswordScheme\SchemeRegistry;
 use Illuminate\Cache\RateLimiting\Limit;
@@ -39,7 +39,7 @@ final class FortifyServiceProvider extends ServiceProvider
         Fortify::loginView(fn () => Inertia::render('Auth/Login'));
 
         Fortify::authenticateUsing(function (Request $request) {
-            return app(AuthenticateAdministrator::class)->handle(
+            return app(AuthenticateAdministratorAction::class)->handle(
                 (string) $request->input('email', ''),
                 (string) $request->input('password', ''),
             );

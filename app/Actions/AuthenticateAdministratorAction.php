@@ -26,7 +26,7 @@ use Illuminate\Support\Facades\Log;
  * and the difference between "no such address" and "not an administrator" is
  * precisely what an attacker enumerating the server wants.
  */
-final class AuthenticateAdministrator
+final class AuthenticateAdministratorAction
 {
     public function __construct(private readonly SchemeRegistry $schemes) {}
 

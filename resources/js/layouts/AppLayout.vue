@@ -62,6 +62,15 @@ const signOut = (): void => {
             >
                 Domains
             </MeNavItem>
+
+            <MeNavItem
+                href="/alias-domains"
+                icon="chevron-right"
+                :active="isCurrent('/alias-domains')"
+                @click="visit('/alias-domains')"
+            >
+                Alias domains
+            </MeNavItem>
         </template>
 
         <template #topbar>

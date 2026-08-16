@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-use App\Actions\AuthenticateAdministrator;
+use App\Actions\AuthenticateAdministratorAction;
 use App\Models\Mail\Domain;
 use App\Models\Mail\Mailbox;
 use App\Support\PasswordScheme\SchemeRegistry;
@@ -209,7 +209,7 @@ it('canonicalises the address inside the action too, not only at the request', f
     // or a test reaching the action directly must behave the same on both.
     makeMailbox();
 
-    $action = app(AuthenticateAdministrator::class);
+    $action = app(AuthenticateAdministratorAction::class);
 
     expect($action->handle('ADMIN@EXAMPLE.TEST', 'correct horse'))->not->toBeNull()
         ->and($action->handle('  admin@example.test  ', 'correct horse'))->not->toBeNull();

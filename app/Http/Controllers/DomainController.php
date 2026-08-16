@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers;
 
-use App\Actions\Domains\DeleteDomain;
-use App\Actions\Domains\SaveDomain;
+use App\Actions\Domains\DeleteDomainAction;
+use App\Actions\Domains\SaveDomainAction;
 use App\Http\Requests\Domains\StoreDomainRequest;
 use App\Http\Requests\Domains\UpdateDomainRequest;
 use App\Models\Mail\Domain;
@@ -68,7 +68,7 @@ final class DomainController extends Controller
         return Inertia::render('Domains/Form', ['domain' => null]);
     }
 
-    public function store(StoreDomainRequest $request, SaveDomain $saveDomain): RedirectResponse
+    public function store(StoreDomainRequest $request, SaveDomainAction $saveDomain): RedirectResponse
     {
         $saveDomain->create($request->validated());
 
@@ -93,7 +93,7 @@ final class DomainController extends Controller
         ]);
     }
 
-    public function update(UpdateDomainRequest $request, Domain $domain, SaveDomain $saveDomain): RedirectResponse
+    public function update(UpdateDomainRequest $request, Domain $domain, SaveDomainAction $saveDomain): RedirectResponse
     {
         $saveDomain->update($domain, $request->validated());
 
@@ -105,7 +105,7 @@ final class DomainController extends Controller
      * account inside untouched, so the operation is genuinely reversible
      * (docs/features/domains.md BR-21).
      */
-    public function setActive(Request $request, Domain $domain, SaveDomain $saveDomain): RedirectResponse
+    public function setActive(Request $request, Domain $domain, SaveDomainAction $saveDomain): RedirectResponse
     {
         $this->authorize('toggle', $domain);
 
@@ -116,7 +116,7 @@ final class DomainController extends Controller
         return back()->with('status', $active ? __('Domain enabled.') : __('Domain disabled.'));
     }
 
-    public function destroy(Domain $domain, DeleteDomain $deleteDomain): RedirectResponse
+    public function destroy(Domain $domain, DeleteDomainAction $deleteDomain): RedirectResponse
     {
         $this->authorize('delete', $domain);
 
