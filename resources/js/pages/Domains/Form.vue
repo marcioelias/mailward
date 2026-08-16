@@ -101,7 +101,13 @@ const submit = (): void => {
                         <MeNumeric id="maillists" v-model="form.maillists" :min="0" :decimals="0" required />
                     </MeField>
 
-                    <MeField label="Maximum quota (bytes)" for="maxquota" required :error="form.errors.maxquota">
+                    <MeField
+                        label="Domain quota pool (MiB)"
+                        for="maxquota"
+                        required
+                        :error="form.errors.maxquota"
+                        hint="Shared across every mailbox in the domain, not a per-mailbox ceiling. Zero means unlimited."
+                    >
                         <MeNumeric id="maxquota" v-model="form.maxquota" :min="0" :decimals="0" required />
                     </MeField>
                 </div>

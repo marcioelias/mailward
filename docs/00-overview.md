@@ -184,10 +184,10 @@ is discarded at the migration — only the mail infrastructure data travels.
 
 ### Newly opened by that research
 
-- **OQ-05** — What unit is `mailbox.quota`? `02-domain.md` §4 says bytes;
-  iRedMail's own Dovecot query multiplies it by 1048576. Both readings produce
-  a plausible number on screen, and one of them is wrong by a factor of a
-  million.
+- **OQ-05 — answered 2026-08-15.** `mailbox.quota` and `domain.maxquota` are in
+  **mebibytes**, confirmed three ways against a live install
+  (`docs/reference/observed-install.md` §4). The same reading corrected Q15:
+  `maxquota` is an aggregate pool for the domain, not a per-mailbox ceiling.
 
 ### Opened by the decisions of 2026-08-15
 

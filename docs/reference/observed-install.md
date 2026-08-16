@@ -123,7 +123,52 @@ accounts do not account for 588. Worth
 
 ---
 
-## 4. The schema is not stock iRedMail
+## 4. Quota — E4 and C1, settled
+
+**The unit is mebibytes**, confirmed three independent ways:
+
+1. Dovecot's shipped `user_query` builds `CONCAT('*:bytes=', mailbox.quota*1048576)`.
+   It multiplies by 2²⁰, so the column is MiB.
+2. Cross-checked against real usage: an account storing `100000` with 78 GB used
+   sits at 79% of a 104.8 GB ceiling. Read as bytes it would be 850,000% over.
+3. iRedAdmin's own templates format the raw value with a MiB base, and use the
+   same base for `maxquota` and for the allocated sum — which only works if both
+   are the same unit.
+
+**`domain.maxquota` is an aggregate pool, not a per-mailbox ceiling.** Read from
+iRedMail's account-creation path: it subtracts the sum already allocated in the
+domain and compares the request against the remainder. Where the request does
+not fit, iRedMail **truncates silently** — it reduces the quota to whatever is
+left and creates the account anyway — and only errors when the balance is zero
+or negative.
+
+This corrects the answer recorded for Q15, which had said `maxquota` caps an
+individual mailbox. Counting differently from iRedAdmin would make the two
+panels disagree about whether a domain is full.
+
+**Not exercised here.** All six domains have `maxquota = 0`, meaning unlimited;
+this deployment sets quota per account only. So the pool path is written from
+iRedMail's code and has no legacy rows to validate against.
+
+**And it would bite immediately if switched on.** Allocation already exceeds the
+disk by a wide margin:
+
+| Domain | Allocated | Mailboxes |
+|---|---|---|
+| `bizz.com.br` | 1,093,000 MiB ≈ 1.04 TiB | 197 |
+| `sulonline.net` | 889,430 MiB ≈ 868 GiB | 272 |
+| `litoralinternet.com.br` | 705,500 MiB ≈ 689 GiB | 16 |
+
+The server has 253 GB free. Overcommit is the norm rather than the exception, so
+any `maxquota` derived from real disk would refuse the next account created.
+
+**`domain.quota` is vestigial.** `BIGINT`, zero on every row, and absent from
+iRedAdmin's code beyond bare `SELECT`s. Recorded as vestigial rather than given
+a meaning nobody uses.
+
+---
+
+## 5. The schema is not stock iRedMail
 
 The `vmail` database carries tables and columns that iRedMail did not create:
 
@@ -159,7 +204,7 @@ on the first insert rather than silently.
 
 ---
 
-## 5. What this does not change
+## 6. What this does not change
 
 The survey's other findings — an expired certificate, a lapsed DNSSEC
 signature, a full swap partition, a queue backed up behind a typo — are the

@@ -208,33 +208,28 @@ feature narrows nothing in it, and adds no role.
   the step that empties the panel of administrators
   (`docs/reference/decisions-needed.md` Q6, answered 2026-08-15).
 
-- **BR-28** — **`domain.maxquota` caps an individual mailbox's `quota`. It does
-  not cap the sum.** On every create, and on every update that submits a quota,
-  the requested value is compared against the `maxquota` of the mailbox's own
-  domain, read on the `vmail` connection inside the same transaction as the
-  write — the same row BR-26 already reads for locality — and a value above the
-  cap is refused as a validation error on the quota field. It is one comparison
-  against one row. **No `SUM` over the domain's mailboxes is computed and no
-  domain-wide allocation total is enforced**, so this rule introduces none of the
-  racy aggregate that BR-29 accepts for the count limits. `0` in `maxquota` means
-  unlimited, consistent with the other per-domain limits (`02-domain.md` §2,
-  `docs/features/domains.md` BR-03); and where the cap is non-zero, a submitted
-  `quota` of `0` — an unlimited mailbox — is **refused**, because unlimited
-  exceeds every cap. Lowering a domain's `maxquota` below quotas already granted
-  is not rejected and rewrites nothing (`docs/features/domains.md`
-  `PUT /domains/{domain}`): existing mailboxes keep their values, and the next
-  write to any of them must satisfy the new cap. The rule ends the treatment
-  `maxquota` shared with `maillists` (`docs/features/domains.md` BR-05):
-  `maillists` is stored and unenforced, `maxquota` is now enforced.
-  **It may not be implemented before the quota unit is settled.**
-  `02-domain.md` §2 documents `domain.maxquota` in bytes while the unit of
-  `mailbox.quota` is unresolved (OQ-M1, contradiction C1, probe E4 in
-  `docs/reference/decisions-needed.md`), and a cap comparing two columns held in
-  different units is worse than no cap — it would be wrong by a factor of
-  1,048,576 in one direction or the other, and both readings render a plausible
-  number. Until E4 is run this rule is specified and unimplemented, and no
-  comparison against `maxquota` ships (`docs/reference/decisions-needed.md` Q15,
-  answered 2026-08-15, option B).
+- **BR-28** — **`domain.maxquota` is an aggregate pool, not a per-mailbox
+  ceiling**, and both it and `mailbox.quota` are in **mebibytes**. Before a
+  mailbox is created or its quota raised, Mailward sums the quotas already
+  allocated in the domain and compares the request against what remains. A
+  `maxquota` of `0` means unlimited and skips the check entirely. This is
+  iRedMail's own semantics, read from its account-creation path; counting
+  differently would make the two panels disagree about whether a domain is full
+  (`docs/reference/decisions-needed.md` Q15, corrected 2026-08-15 against
+  `docs/reference/observed-install.md`).
+
+  **iRedMail truncates where Mailward refuses.** Its own code silently reduces
+  the requested quota to whatever is left — `mailQuota = spareQuota` — and only
+  errors when the balance is zero or negative. Mailward refuses instead, with a
+  message naming the remaining balance. Silently granting an administrator a
+  different quota than the one they typed is the same class of defect this
+  document guards against everywhere else: it looks like it worked. The
+  divergence is deliberate and is the one place Mailward behaves differently
+  from iRedAdmin on the same action.
+
+  **Unexercised on the first deployment.** Every domain there has
+  `maxquota = 0`, so no legacy data validates this path — it is written from
+  iRedMail's code, not from observed rows.
 - **BR-29** — **The `domain.mailboxes` limit of BR-05 is counted inside the
   create transaction, without locking, and the count-then-insert race is
   accepted.** The count runs on the `vmail` connection inside the same
@@ -562,13 +557,7 @@ the locality check of BR-26, the limit of BR-05 and the quota cap of BR-28;
 
 ## Open Questions
 
-- **OQ-M1** — What unit is `mailbox.quota`? `02-domain.md` §4 and §2 say bytes,
-  but the Dovecot `user_query` shipped by iRedMail and quoted in
-  `docs/reference/open-questions-research.md` (OQ-03, established fact 1) builds
-  its quota rule as `mailbox.quota*1048576`, which implies mebibytes. The two
-  readings differ by a factor of 1,048,576 and both produce a plausible-looking
-  number in the panel. No quota value may be written until this is settled
-  against a real install.
+
 - **OQ-M2** — Does Dovecot auto-create the maildir on first delivery? If it does
   not, the directory must exist before delivery, and Mailward — running
   unprivileged — cannot create it, which turns mailbox creation into a

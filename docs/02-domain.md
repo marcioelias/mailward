@@ -108,8 +108,8 @@ Table `domain`, primary key `domain` (the domain name).
 | `aliases` | Max alias accounts; `0` means unlimited |
 | `mailboxes` | Max mail accounts |
 | `maillists` | Max mailing lists |
-| `maxquota` | Max quota for the domain, bytes |
-| `quota` | Historical, unused — do not surface it |
+| `maxquota` | Aggregate quota pool for the domain, **mebibytes**; `0` means unlimited |
+| `quota` | **Vestigial.** `BIGINT`, zero on every row observed, and absent from iRedAdmin's code beyond bare `SELECT`s. Never read, never written, never surfaced |
 | `transport` | Per-domain transport, default `dovecot` |
 | `backupmx` | Domain is a backup MX only |
 | `settings` | iRedAdmin-Pro — ignored |
@@ -152,11 +152,16 @@ which is where the confusion originates — so the deletion record stores the
 concatenation, not this column's value
 (`docs/reference/current-iredmail-behaviour.md`).
 
-The unit of `quota` is **not settled**: this document has said bytes, and
-iRedMail's own Dovecot query multiplies the column by 1048576, which implies
-mebibytes. The two readings differ by a factor of a million and both look
-plausible on screen. See OQ-05 in `docs/00-overview.md`; no quota value is
-written until it is resolved.
+**`quota` is in mebibytes**, settled 2026-08-15 by three independent readings
+of a live install (`docs/reference/observed-install.md`):
+
+- Dovecot's shipped `user_query` builds `CONCAT('*:bytes=', mailbox.quota*1048576)`
+  — it multiplies by 2²⁰, so the column is MiB
+- Cross-checked against real usage: an account storing `100000` against 78 GB
+  used is at 79% of a 104.8 GB ceiling. Read as bytes it would be 850,000% over
+- iRedAdmin's own templates format the raw value with a MiB base
+
+`domain.maxquota` is the same unit.
 
 **Administration**
 `isadmin`, `isglobaladmin`
