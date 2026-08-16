@@ -75,7 +75,13 @@ const setActive = (row: DomainRow): void => {
  * Deleting a domain destroys every account inside it, so the confirmation
  * names what will actually be lost rather than asking "are you sure".
  */
+const confirming = ref(false);
 const pendingDeletion = ref<DomainRow | null>(null);
+
+const askToDelete = (row: any): void => {
+    pendingDeletion.value = row;
+    confirming.value = true;
+};
 
 const confirmDeletion = (): void => {
     const row = pendingDeletion.value;
@@ -83,6 +89,7 @@ const confirmDeletion = (): void => {
     if (row) {
         router.delete(`/domains/${row.domain}`);
         pendingDeletion.value = null;
+        confirming.value = false;
     }
 };
 </script>
@@ -185,8 +192,7 @@ const confirmDeletion = (): void => {
                             <MeButton
                                 variant="ghost"
                                 size="sm"
-                                data-me-modal-open="confirm-domain-deletion"
-                                @click="pendingDeletion = row"
+                                @click="askToDelete(row)"
                             >
                                 Delete
                             </MeButton>
@@ -210,6 +216,8 @@ const confirmDeletion = (): void => {
 
     <MeModal
         id="confirm-domain-deletion"
+        v-model:open="confirming"
+        @close="pendingDeletion = null"
         variant="danger"
         icon="alert-triangle"
         :title="`Delete ${pendingDeletion?.domain}?`"

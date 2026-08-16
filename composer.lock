@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "9a87204f588a18512bc6e493000971e0",
+    "content-hash": "daaeb62ef646dd702a358efae5de5604",
     "packages": [
         {
             "name": "bacon/bacon-qr-code",
@@ -2391,16 +2391,16 @@
         },
         {
             "name": "marcioelias/my-eyes",
-            "version": "v0.3.0",
+            "version": "v0.3.1",
             "source": {
                 "type": "git",
                 "url": "https://github.com/marcioelias/my-eyes.git",
-                "reference": "bcd0fe13d6329ccddf8fef52bc72582ec09bc436"
+                "reference": "8ce6e7e69b05c10f0c0b9b651dbbe4015e8f6dc8"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/marcioelias/my-eyes/zipball/bcd0fe13d6329ccddf8fef52bc72582ec09bc436",
-                "reference": "bcd0fe13d6329ccddf8fef52bc72582ec09bc436",
+                "url": "https://api.github.com/repos/marcioelias/my-eyes/zipball/8ce6e7e69b05c10f0c0b9b651dbbe4015e8f6dc8",
+                "reference": "8ce6e7e69b05c10f0c0b9b651dbbe4015e8f6dc8",
                 "shasum": ""
             },
             "require": {
@@ -2454,7 +2454,7 @@
                 "issues": "https://github.com/marcioelias/my-eyes/issues",
                 "source": "https://github.com/marcioelias/my-eyes"
             },
-            "time": "2026-08-15T13:37:46+00:00"
+            "time": "2026-08-16T01:59:26+00:00"
         },
         {
             "name": "monolog/monolog",

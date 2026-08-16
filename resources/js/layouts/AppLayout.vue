@@ -1,96 +1,99 @@
 <script setup lang="ts">
-import { Link, router, usePage } from '@inertiajs/vue3'
+import { Link, router, usePage } from "@inertiajs/vue3";
 import {
     MeAdminLayout,
+    MeBrand,
     MeDropdownDivider,
     MeDropdownItem,
     MeNavItem,
     MeToasts,
     MeUserMenu,
-} from '@my-eyes/vue'
-import { computed } from 'vue'
+} from "@my-eyes/vue";
+import { computed } from "vue";
 
-defineProps<{ title?: string; subtitle?: string }>()
+defineProps<{ title?: string; subtitle?: string }>();
 
-const page = usePage()
+const page = usePage();
 
-const currentPath = computed(() => new URL(page.url, 'http://localhost').pathname)
+const currentPath = computed(
+    () => new URL(page.url, "http://localhost").pathname,
+);
 
 /** MeNavItem requires `active` explicitly; it does not compare URLs itself. */
 const isCurrent = (route: string): boolean =>
-    currentPath.value === route || currentPath.value.startsWith(`${route}/`)
-
-/**
- * MeNavItem renders a plain anchor, which would reload the whole document.
- * It spreads its attributes onto that anchor, so intercepting the click and
- * handing the visit back to Inertia is enough. A prop letting the component
- * render as an Inertia Link would remove this adapter — worth raising with
- * the package.
- */
-const visit = (href: string) => (event: MouseEvent): void => {
-    if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) {
-        return
-    }
-
-    event.preventDefault()
-    router.visit(href)
-}
+    currentPath.value === route || currentPath.value.startsWith(`${route}/`);
 
 const actor = computed(
     () => (page.props as { actor?: { address?: string; name?: string } }).actor,
-)
+);
 
 const signOut = (): void => {
-    router.post('/logout')
-}
+    router.post("/logout");
+};
 </script>
 
+<!--
+    Every link here renders as Inertia's Link through the `as` prop rather than
+    as a plain anchor, so navigation swaps the page without reloading the
+    document. The package never detects the router itself, which is what keeps
+    it usable from Blade, Livewire and Vue alike.
+-->
 <template>
     <MeAdminLayout :heading="title" :subheading="subtitle">
         <template #brand>
-            <Link href="/">Mailward</Link>
+            <MeBrand :as="Link" href="/" name="Mailward" />
         </template>
 
         <template #nav>
-            <MeNavItem href="/" icon="home" :active="currentPath === '/'" @click="visit('/')">
+            <MeNavItem
+                :as="Link"
+                href="/"
+                icon="home"
+                :active="currentPath === '/'"
+            >
                 Status
             </MeNavItem>
 
             <MeNavItem
+                :as="Link"
                 href="/domains"
                 icon="mail"
                 :active="isCurrent('/domains')"
-                @click="visit('/domains')"
             >
                 Domains
             </MeNavItem>
 
             <MeNavItem
+                :as="Link"
                 href="/mailboxes"
                 icon="users"
                 :active="isCurrent('/mailboxes')"
-                @click="visit('/mailboxes')"
             >
                 Mailboxes
             </MeNavItem>
 
             <MeNavItem
+                :as="Link"
                 href="/alias-domains"
                 icon="chevron-right"
                 :active="isCurrent('/alias-domains')"
-                @click="visit('/alias-domains')"
             >
                 Alias domains
             </MeNavItem>
         </template>
 
         <template #user>
-            <MeUserMenu :name="actor?.name || actor?.address || ''" :email="actor?.address ?? ''">
-                <MeDropdownItem icon="user" @click="visit('/account')($event)">
+            <MeUserMenu
+                :name="actor?.name || actor?.address || ''"
+                :email="actor?.address ?? ''"
+            >
+                <MeDropdownItem :as="Link" href="/account" icon="user">
                     Your account
                 </MeDropdownItem>
                 <MeDropdownDivider />
-                <MeDropdownItem icon="log-out" @click="signOut">Sign out</MeDropdownItem>
+                <MeDropdownItem icon="log-out" @click="signOut"
+                    >Sign out</MeDropdownItem
+                >
             </MeUserMenu>
         </template>
 

@@ -10,26 +10,33 @@
  * small: no 0 or O, no 1, l or I. Strength comes from length rather than from
  * punctuation the recipient will mistype on a phone keyboard (BR-33).
  */
-const ALPHABET = 'abcdefghijkmnpqrstuvwxyz23456789'
+const ALPHABET = "abcdefghijkmnpqrstuvwxyz23456789";
 
-const BLOCKS = 4
-const BLOCK_LENGTH = 4
+const BLOCKS = 4;
+const BLOCK_LENGTH = 4;
 
 export function suggestPassword(): string {
-    const bytes = new Uint32Array(BLOCKS * BLOCK_LENGTH)
+    const bytes = new Uint32Array(BLOCKS * BLOCK_LENGTH);
 
     // The platform CSPRNG. Math.random is not a password source.
-    crypto.getRandomValues(bytes)
+    crypto.getRandomValues(bytes);
 
-    const characters = Array.from(bytes, (byte) => ALPHABET[byte % ALPHABET.length])
+    const characters = Array.from(
+        bytes,
+        (byte) => ALPHABET[byte % ALPHABET.length],
+    );
 
-    const blocks: string[] = []
+    const blocks: string[] = [];
 
     for (let index = 0; index < BLOCKS; index++) {
-        blocks.push(characters.slice(index * BLOCK_LENGTH, (index + 1) * BLOCK_LENGTH).join(''))
+        blocks.push(
+            characters
+                .slice(index * BLOCK_LENGTH, (index + 1) * BLOCK_LENGTH)
+                .join(""),
+        );
     }
 
     // 16 characters of entropy, hyphenated into blocks that survive being read
     // aloud. Comfortably above the twelve the server enforces.
-    return blocks.join('-')
+    return blocks.join("-");
 }

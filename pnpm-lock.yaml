@@ -12,11 +12,11 @@ importers:
         specifier: ^3.6.1
         version: 3.6.1(vue@3.5.41(typescript@5.9.3))
       '@my-eyes/core':
-        specifier: ^0.3.0
-        version: 0.3.0(tailwindcss@4.3.3)
+        specifier: ^0.3.1
+        version: 0.3.1(tailwindcss@4.3.3)
       '@my-eyes/vue':
-        specifier: ^0.3.0
-        version: 0.3.0(@my-eyes/core@0.3.0(tailwindcss@4.3.3))(vue@3.5.41(typescript@5.9.3))
+        specifier: ^0.3.1
+        version: 0.3.1(@my-eyes/core@0.3.1(tailwindcss@4.3.3))(vue@3.5.41(typescript@5.9.3))
       vue:
         specifier: ^3.5.41
         version: 3.5.41(typescript@5.9.3)
@@ -111,15 +111,15 @@ packages:
     os: [darwin, linux]
     hasBin: true
 
-  '@my-eyes/core@0.3.0':
-    resolution: {integrity: sha512-bnBVhLgYIb2p4CdyXW68LuI/w82dc9YzLv+UPnEG4kj5Ghhu9Qg+lGtXjWEgTddciA8k3p6X/YZa31CIAnfJNQ==}
+  '@my-eyes/core@0.3.1':
+    resolution: {integrity: sha512-ieMgYtqdXHdN37YuIPwu5ttkGSKdqaMbNzXmaiFW4R4lfpeIBwqGsx1Zgxhk+3ev9HMBdEtnH9Q6pcEsvHxqvQ==}
     peerDependencies:
       tailwindcss: ^4.0.0
 
-  '@my-eyes/vue@0.3.0':
-    resolution: {integrity: sha512-qLFkvTxYYCtZ54PUkVYEHH7wkBdJzm1cr1OYp9Oh67t54tdWmSqKQWolRYBogRGbHUi7yBAV22+f46P2pY4y9Q==}
+  '@my-eyes/vue@0.3.1':
+    resolution: {integrity: sha512-C4GlVxbJss044Q5EBu7A2TL3PhZSsa06zuv6Ddd+9KQZ6Yct2NPINlIb8Md3fViQxF/aUtxVy5OAy7rFx6jLvQ==}
     peerDependencies:
-      '@my-eyes/core': ^0.3.0
+      '@my-eyes/core': ^0.3.1
       vue: ^3.5.0
 
   '@oxc-project/types@0.144.0':
@@ -986,13 +986,13 @@ snapshots:
       - utf-8-validate
     optional: true
 
-  '@my-eyes/core@0.3.0(tailwindcss@4.3.3)':
+  '@my-eyes/core@0.3.1(tailwindcss@4.3.3)':
     dependencies:
       tailwindcss: 4.3.3
 
-  '@my-eyes/vue@0.3.0(@my-eyes/core@0.3.0(tailwindcss@4.3.3))(vue@3.5.41(typescript@5.9.3))':
+  '@my-eyes/vue@0.3.1(@my-eyes/core@0.3.1(tailwindcss@4.3.3))(vue@3.5.41(typescript@5.9.3))':
     dependencies:
-      '@my-eyes/core': 0.3.0(tailwindcss@4.3.3)
+      '@my-eyes/core': 0.3.1(tailwindcss@4.3.3)
       vue: 3.5.41(typescript@5.9.3)
 
   '@oxc-project/types@0.144.0': {}

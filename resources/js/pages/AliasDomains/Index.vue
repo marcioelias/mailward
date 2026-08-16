@@ -68,7 +68,13 @@ const setActive = (row: AliasDomainRow): void => {
     });
 };
 
+const confirming = ref(false);
 const pendingDeletion = ref<AliasDomainRow | null>(null);
+
+const askToDelete = (row: any): void => {
+    pendingDeletion.value = row;
+    confirming.value = true;
+};
 
 const confirmDeletion = (): void => {
     const row = pendingDeletion.value;
@@ -76,6 +82,7 @@ const confirmDeletion = (): void => {
     if (row) {
         router.delete(`/alias-domains/${row.alias_domain}`);
         pendingDeletion.value = null;
+        confirming.value = false;
     }
 };
 </script>
@@ -155,8 +162,7 @@ const confirmDeletion = (): void => {
                             <MeButton
                                 variant="ghost"
                                 size="sm"
-                                data-me-modal-open="confirm-alias-domain-deletion"
-                                @click="pendingDeletion = row"
+                                @click="askToDelete(row)"
                             >
                                 Delete
                             </MeButton>
@@ -180,6 +186,8 @@ const confirmDeletion = (): void => {
 
     <MeModal
         id="confirm-alias-domain-deletion"
+        v-model:open="confirming"
+        @close="pendingDeletion = null"
         variant="danger"
         icon="alert-triangle"
         :title="`Delete ${pendingDeletion?.alias_domain}?`"

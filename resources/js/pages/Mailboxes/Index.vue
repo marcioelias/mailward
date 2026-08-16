@@ -82,7 +82,13 @@ const setActive = (row: MailboxRow): void => {
     toggle.post(`/mailboxes/${row.username}/active`, { preserveScroll: true });
 };
 
+const confirming = ref(false);
 const pendingDeletion = ref<MailboxRow | null>(null);
+
+const askToDelete = (row: any): void => {
+    pendingDeletion.value = row;
+    confirming.value = true;
+};
 
 const confirmDeletion = (): void => {
     const row = pendingDeletion.value;
@@ -90,6 +96,7 @@ const confirmDeletion = (): void => {
     if (row) {
         router.delete(`/mailboxes/${row.username}`);
         pendingDeletion.value = null;
+        confirming.value = false;
     }
 };
 </script>
@@ -196,8 +203,7 @@ const confirmDeletion = (): void => {
                         <MeButton
                             variant="ghost"
                             size="sm"
-                            data-me-modal-open="confirm-mailbox-deletion"
-                            @click="pendingDeletion = row"
+                            @click="askToDelete(row)"
                         >
                             Delete
                         </MeButton>
@@ -220,6 +226,8 @@ const confirmDeletion = (): void => {
 
     <MeModal
         id="confirm-mailbox-deletion"
+        v-model:open="confirming"
+        @close="pendingDeletion = null"
         variant="danger"
         icon="alert-triangle"
         :title="`Delete ${pendingDeletion?.username}?`"
