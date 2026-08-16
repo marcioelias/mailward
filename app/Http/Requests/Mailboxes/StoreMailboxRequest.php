@@ -32,7 +32,7 @@ final class StoreMailboxRequest extends FormRequest
                 'required', 'string', 'max:255', 'email:rfc',
                 Rule::unique('vmail.mailbox', 'username'),
             ],
-            'password' => ['required', 'string', 'min:8', 'max:1024', 'confirmed'],
+            'password' => ['required', 'string', 'min:12', 'max:1024', 'confirmed'],
             'name' => ['nullable', 'string', 'max:255'],
 
             // Mebibytes, and zero means unlimited (BR-13).

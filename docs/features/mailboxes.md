@@ -284,6 +284,50 @@ feature narrows nothing in it, and adds no role.
   services", not for every column whose name begins with `enable`
   (`docs/reference/decisions-needed.md` Q20, answered 2026-08-15, option A).
 
+- **BR-31** — **Changing a mail password has a screen of its own**, reached
+  from the mailbox listing and from the account's edit page. It is not a field
+  inside the profile form. The reason is that this write is not like the
+  others: it takes effect on IMAP, SMTP and webmail at the same moment, and it
+  signs the person out of every mail client they own until they type the new
+  one. A field sitting beside "display name" invites it to be changed by
+  accident (`docs/reference/decisions-needed.md`, 2026-08-15).
+
+- **BR-32** — **The screen offers a generated suggestion**, shown prominently
+  before the manual fields, with two controls: one that copies it to the
+  clipboard and fills both password fields, and one that replaces it with
+  another. The suggestion is generated **on the client**. Generating it on the
+  server would put a password nobody chose into the page payload — where it
+  reaches the browser's history and developer tools even for the suggestions
+  that are rotated past and never used.
+
+- **BR-33** — **The suggestion is built to be spoken and typed, not only to be
+  strong.** An administrator resetting an account frequently reads the result
+  to its owner over the phone, and the owner types it into a mail client on a
+  handset. It therefore excludes characters that are ambiguous when read aloud
+  or rendered in a small font — `0`/`O`, `1`/`l`/`I` — and is grouped into
+  short blocks separated by hyphens. Strength comes from length rather than
+  from punctuation the recipient will mistype.
+
+- **BR-34** — **Minimum length is enforced on the server**, at twelve
+  characters, on both the create and the change paths. The suggestion is longer
+  than the minimum; the minimum exists for the manual path. A client-side
+  meter, if any, is a courtesy and never the check
+  (`standards/security.md` §3: a value the backend did not validate cannot be
+  used).
+
+- **BR-35** — **The new password is confirmed by repetition**, and a mismatch
+  is a validation error naming that field. There is no "show password" toggle
+  that reveals a value already stored — Mailward cannot reveal an existing
+  password because it holds only a hash, and offering the control would imply
+  otherwise.
+
+- **BR-36** — **The screen states the consequence before the button, not
+  after.** It names, in the interface, that this is the account's real mail
+  password, that IMAP, SMTP and webmail change together, and that the person
+  will be signed out of their mail clients. `docs/02-domain.md` §4 requires the
+  interface to present it as such; this is where.
+
+
 ## Data
 
 **Written** — `vmail.mailbox`, primary key `username` (the full address):
@@ -324,6 +368,50 @@ limit of BR-05 and BR-29, `maxquota` for the per-mailbox cap of BR-28, plus
 other table keyed by the address are cleaned on delete; `audit_log` is written
 and never cleaned (BR-18).
 
+- **BR-31** — **Changing a mail password has a screen of its own**, reached
+  from the mailbox listing and from the account's edit page. It is not a field
+  inside the profile form. The reason is that this write is not like the
+  others: it takes effect on IMAP, SMTP and webmail at the same moment, and it
+  signs the person out of every mail client they own until they type the new
+  one. A field sitting beside "display name" invites it to be changed by
+  accident (`docs/reference/decisions-needed.md`, 2026-08-15).
+
+- **BR-32** — **The screen offers a generated suggestion**, shown prominently
+  before the manual fields, with two controls: one that copies it to the
+  clipboard and fills both password fields, and one that replaces it with
+  another. The suggestion is generated **on the client**. Generating it on the
+  server would put a password nobody chose into the page payload — where it
+  reaches the browser's history and developer tools even for the suggestions
+  that are rotated past and never used.
+
+- **BR-33** — **The suggestion is built to be spoken and typed, not only to be
+  strong.** An administrator resetting an account frequently reads the result
+  to its owner over the phone, and the owner types it into a mail client on a
+  handset. It therefore excludes characters that are ambiguous when read aloud
+  or rendered in a small font — `0`/`O`, `1`/`l`/`I` — and is grouped into
+  short blocks separated by hyphens. Strength comes from length rather than
+  from punctuation the recipient will mistype.
+
+- **BR-34** — **Minimum length is enforced on the server**, at twelve
+  characters, on both the create and the change paths. The suggestion is longer
+  than the minimum; the minimum exists for the manual path. A client-side
+  meter, if any, is a courtesy and never the check
+  (`standards/security.md` §3: a value the backend did not validate cannot be
+  used).
+
+- **BR-35** — **The new password is confirmed by repetition**, and a mismatch
+  is a validation error naming that field. There is no "show password" toggle
+  that reveals a value already stored — Mailward cannot reveal an existing
+  password because it holds only a hash, and offering the control would imply
+  otherwise.
+
+- **BR-36** — **The screen states the consequence before the button, not
+  after.** It names, in the interface, that this is the account's real mail
+  password, that IMAP, SMTP and webmail change together, and that the person
+  will be signed out of their mail clients. `docs/02-domain.md` §4 requires the
+  interface to present it as such; this is where.
+
+
 ## Contracts
 
 Inertia pages and form endpoints only. No JSON API is exposed for the panel's
@@ -339,7 +427,8 @@ validation-error redirect, not JSON.
 | GET | `/mailboxes/{mailbox}` | `Mailboxes/Show` — quota limit and usage, `last_login` values, service toggles |
 | GET | `/mailboxes/{mailbox}/edit` | `Mailboxes/Edit` |
 | PUT | `/mailboxes/{mailbox}` | Updates profile, quota, services, `allow_nets`, `active` |
-| PUT | `/mailboxes/{mailbox}/password` | Changes the real mail password (BR-10, BR-11) |
+| GET | `/mailboxes/{mailbox}/password` | `Mailboxes/Password` — the dedicated screen (BR-31) |
+| PUT | `/mailboxes/{mailbox}/password` | Changes the real mail password (BR-10, BR-11, BR-34) |
 | PATCH | `/mailboxes/{mailbox}/active` | Activate / deactivate (BR-07, BR-19) |
 | DELETE | `/mailboxes/{mailbox}` | Deletes per BR-16, BR-17, BR-18 and the cascade of BR-23, BR-24, BR-25 |
 
@@ -531,6 +620,32 @@ the locality check of BR-26, the limit of BR-05 and the quota cap of BR-28;
   and `enablesogoactivesync` all hold `'n'`; when it is turned on, then
   `enablesogo` is `1` and all three hold `'y'`; and the form offers no
   independent control for any of the three. *(BR-30, BR-07, AC-09)*
+
+- **AC-40** — Given an administrator on the mailbox listing, when they choose
+  the password action for an account in their scope, then a dedicated page for
+  that account is shown; and when the account is outside their scope, the
+  response is `404`.
+- **AC-41** — Given that page, then a generated suggestion is present before
+  the manual fields, and the page payload delivered by the server contains no
+  password value of any kind.
+- **AC-42** — Given the suggestion, when it is rotated, then a different value
+  is shown and no request is made to the server.
+- **AC-43** — Given a submitted password shorter than twelve characters, then
+  the response is a validation error on the password field and
+  `mailbox.password` is unchanged.
+- **AC-44** — Given a password and a confirmation that differ, then the
+  response is a validation error naming the confirmation and nothing is
+  written.
+- **AC-45** — Given a valid password, when it is saved, then `mailbox.password`
+  holds a value in the configured generative scheme that verifies against the
+  submitted plaintext, `passwordlastchange` is updated, and an `audit_log`
+  entry records that the password changed **without recording the password or
+  the resulting hash**.
+- **AC-46** — Given a mailbox whose stored password is weaker than the one
+  Mailward would write — an older scheme, or bcrypt below the configured work
+  factor — then the screen says so, naming the reason, without implying the
+  account is broken.
+
 
 ## Out of Scope
 

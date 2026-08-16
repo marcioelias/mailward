@@ -138,6 +138,24 @@ final class MailboxController extends Controller
         return to_route('mailboxes.index')->with('status', __('Mailbox updated.'));
     }
 
+    /**
+     * The dedicated screen (BR-31). It carries no password value of any kind —
+     * the suggestion is generated in the browser, so nothing a nobody chose
+     * ends up in the page payload, the browser history or the devtools.
+     */
+    public function editPassword(Mailbox $mailbox): Response
+    {
+        $this->authorize('update', $mailbox);
+
+        return Inertia::render('Mailboxes/Password', [
+            'mailbox' => [
+                'username' => $mailbox->getKey(),
+                'name' => $mailbox->name,
+                'weakness' => app(SchemeRegistry::class)->weakness((string) $mailbox->getAttribute('password')),
+            ],
+        ]);
+    }
+
     public function updatePassword(
         UpdateMailboxPasswordRequest $request,
         Mailbox $mailbox,

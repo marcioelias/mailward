@@ -143,6 +143,12 @@ const confirmDeletion = (): void => {
                             >
                                 Edit
                             </Link>
+                            <Link
+                                :href="`/mailboxes/${row.username}/password`"
+                                class="me-btn me-btn--ghost me-btn--sm"
+                            >
+                                Password
+                            </Link>
                             <MeButton variant="ghost" size="sm" @click="setActive(row)">
                                 {{ row.active ? 'Disable' : 'Enable' }}
                             </MeButton>

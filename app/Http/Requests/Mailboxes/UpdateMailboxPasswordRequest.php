@@ -25,7 +25,7 @@ final class UpdateMailboxPasswordRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'password' => ['required', 'string', 'min:8', 'max:1024', 'confirmed'],
+            'password' => ['required', 'string', 'min:12', 'max:1024', 'confirmed'],
         ];
     }
 

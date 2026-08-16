@@ -44,8 +44,6 @@ const form = useForm({
     services: props.mailbox?.services ?? Object.fromEntries(props.services.map((s) => [s.key, true])),
 })
 
-const password = useForm({ password: '', password_confirmation: '' })
-
 const submit = (): void => {
     if (editing.value) {
         form.put(`/mailboxes/${props.mailbox?.username}`)
@@ -54,12 +52,6 @@ const submit = (): void => {
     }
 
     form.post('/mailboxes')
-}
-
-const changePassword = (): void => {
-    password.put(`/mailboxes/${props.mailbox?.username}/password`, {
-        onSuccess: () => password.reset(),
-    })
 }
 
 const usedMib = computed(() => Math.round((props.mailbox?.usedBytes ?? 0) / 1048576))
@@ -196,49 +188,19 @@ const lastLogin = computed(() => {
 
             <MeCard
                 v-if="editing"
-                title="Change the mail password"
-                description="This changes IMAP, SMTP and webmail at the same time. The person will be signed out of their mail client."
+                title="Mail password"
+                description="Changing it takes effect on IMAP, SMTP and webmail at once, so it has a screen of its own."
             >
                 <MeAlert v-if="mailbox?.weakness" variant="warning">
                     {{ mailbox.weakness }}
                 </MeAlert>
 
-                <form class="me-stack" @submit.prevent="changePassword">
-                    <MeField
-                        label="New password"
-                        for="new_password"
-                        required
-                        :error="password.errors.password"
-                    >
-                        <MeInput
-                            id="new_password"
-                            v-model="password.password"
-                            type="password"
-                            autocomplete="new-password"
-                            required
-                        />
-                    </MeField>
-
-                    <MeField label="Repeat it" for="new_password_confirmation" required>
-                        <MeInput
-                            id="new_password_confirmation"
-                            v-model="password.password_confirmation"
-                            type="password"
-                            autocomplete="new-password"
-                            required
-                        />
-                    </MeField>
-
-                    <div class="me-row me-row--end">
-                        <MeButton
-                            type="submit"
-                            variant="danger"
-                            :disabled="password.processing"
-                        >
-                            Change the mail password
-                        </MeButton>
-                    </div>
-                </form>
+                <Link
+                    :href="`/mailboxes/${mailbox?.username}/password`"
+                    class="me-btn me-btn--secondary"
+                >
+                    Change the mail password
+                </Link>
             </MeCard>
         </div>
     </AppLayout>

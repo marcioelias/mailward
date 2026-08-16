@@ -282,3 +282,63 @@ describe('scope', function () {
         );
     });
 });
+
+describe('the password screen (BR-31 to BR-36)', function () {
+    beforeEach(function () {
+        makeDomain('example.test');
+        $this->actingAs(globalAdmin())->post('/mailboxes', creationPayload());
+    });
+
+    it('has a screen of its own, and sends no password value to it', function () {
+        // The suggestion is generated in the browser precisely so that no
+        // password nobody chose reaches the page payload, the browser history
+        // or the devtools.
+        $this->actingAs(globalAdmin())->get('/mailboxes/joao@example.test/password')
+            ->assertOk()
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->component('Mailboxes/Password')
+                ->where('mailbox.username', 'joao@example.test')
+                ->missing('mailbox.password')
+                ->missing('suggestion')
+            );
+    });
+
+    it('is refused for an account outside the actor\'s scope', function () {
+        makeDomain('theirs.test');
+        $this->actingAs(globalAdmin())->post('/mailboxes', creationPayload([
+            'username' => 'someone@theirs.test',
+        ]));
+
+        $this->actingAs(domainAdmin('example.test'))
+            ->get('/mailboxes/someone@theirs.test/password')
+            ->assertNotFound();
+    });
+
+    it('refuses a password below the minimum length', function () {
+        $before = (string) Mailbox::withoutDomainScope()
+            ->find('joao@example.test')->getAttribute('password');
+
+        $this->actingAs(globalAdmin())->put('/mailboxes/joao@example.test/password', [
+            'password' => 'short', 'password_confirmation' => 'short',
+        ])->assertSessionHasErrors('password');
+
+        expect((string) Mailbox::withoutDomainScope()
+            ->find('joao@example.test')->getAttribute('password'))->toBe($before);
+    });
+
+    it('refuses when the confirmation differs', function () {
+        $this->actingAs(globalAdmin())->put('/mailboxes/joao@example.test/password', [
+            'password' => 'a perfectly fine one', 'password_confirmation' => 'a different one',
+        ])->assertSessionHasErrors('password');
+    });
+
+    it('reports a password weaker than the one it would write', function () {
+        Mailbox::withoutDomainScope()->where('username', 'joao@example.test')
+            ->update(['password' => '{CRYPT}'.password_hash('x', PASSWORD_BCRYPT, ['cost' => 5])]);
+
+        $this->actingAs(globalAdmin())->get('/mailboxes/joao@example.test/password')
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->where('mailbox.weakness', fn (?string $weakness) => str_contains((string) $weakness, 'cost 5'))
+            );
+    });
+});

@@ -57,6 +57,7 @@ Route::middleware(['auth', EnsureStillAnAdministrator::class])->group(function (
     Route::post('/mailboxes', [MailboxController::class, 'store'])->name('mailboxes.store');
     Route::get('/mailboxes/{mailbox}/edit', [MailboxController::class, 'edit'])->name('mailboxes.edit');
     Route::put('/mailboxes/{mailbox}', [MailboxController::class, 'update'])->name('mailboxes.update');
+    Route::get('/mailboxes/{mailbox}/password', [MailboxController::class, 'editPassword'])->name('mailboxes.password.edit');
     Route::put('/mailboxes/{mailbox}/password', [MailboxController::class, 'updatePassword'])->name('mailboxes.password');
     Route::post('/mailboxes/{mailbox}/active', [MailboxController::class, 'setActive'])->name('mailboxes.active');
     Route::delete('/mailboxes/{mailbox}', [MailboxController::class, 'destroy'])->name('mailboxes.destroy');
