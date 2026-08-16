@@ -231,7 +231,7 @@ it('restores the administrator from the session on a later request', function ()
 
     auth()->forgetUser();
 
-    $this->get('/')->assertOk();
+    $this->get('/dashboard')->assertOk();
 
     expect(auth()->check())->toBeTrue()
         ->and(auth()->user()?->getAuthIdentifier())->toBe('admin@example.test');
@@ -258,7 +258,7 @@ describe('the gate runs on every request, not only at login (Q13)', function () 
     it('ends the session when the administrator flag is cleared', function () {
         signInThen(['isadmin' => 0, 'isglobaladmin' => 0]);
 
-        $this->get('/')->assertRedirect('/login');
+        $this->get('/dashboard')->assertRedirect('/login');
 
         expect(auth()->check())->toBeFalse();
     });
@@ -266,13 +266,13 @@ describe('the gate runs on every request, not only at login (Q13)', function () 
     it('ends the session when the account is deactivated', function () {
         signInThen(['active' => 0]);
 
-        $this->get('/')->assertRedirect('/login');
+        $this->get('/dashboard')->assertRedirect('/login');
     });
 
     it('ends the session when the account expires', function () {
         signInThen(['expired' => now()->subMinute()]);
 
-        $this->get('/')->assertRedirect('/login');
+        $this->get('/dashboard')->assertRedirect('/login');
     });
 
     it('ends the session when the account is deleted outright', function () {
@@ -282,7 +282,7 @@ describe('the gate runs on every request, not only at login (Q13)', function () 
         Mailbox::query()->withoutDomainScope()->where('username', 'admin@example.test')->delete();
         auth()->forgetUser();
 
-        $this->get('/')->assertRedirect('/login');
+        $this->get('/dashboard')->assertRedirect('/login');
     });
 
     it('leaves an untouched session alone', function () {
@@ -291,7 +291,7 @@ describe('the gate runs on every request, not only at login (Q13)', function () 
 
         auth()->forgetUser();
 
-        $this->get('/')->assertOk();
+        $this->get('/dashboard')->assertOk();
         expect(auth()->check())->toBeTrue();
     });
 });

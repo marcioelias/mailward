@@ -9,6 +9,7 @@ use App\Casts\NeverExpiresDate;
 use App\Casts\NeverSetDate;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
@@ -66,6 +67,26 @@ final class Alias extends MailModel
             'expired' => NeverExpiresDate::class,
             'active' => IntegerBoolean::class,
         ];
+    }
+
+    /**
+     * Resolved for a route **without** the domain scope, on purpose.
+     *
+     * `docs/features/aliases.md` AC-11 requires an alias outside the actor's
+     * scope to answer 403 and to be recorded as an authorization failure, and a
+     * scoped lookup would answer 404 before any policy ran — the attempt would
+     * leave no trace. The scope still governs every listing (§3 of
+     * `docs/policies/authorization.md`); on a single record the policy is the
+     * barrier, which is exactly the second-barrier role §3 gives it.
+     *
+     * @param  mixed  $value
+     * @param  string|null  $field
+     */
+    public function resolveRouteBinding($value, $field = null): ?Model
+    {
+        return self::withoutDomainScope()
+            ->where($field ?? $this->getRouteKeyName(), $value)
+            ->first();
     }
 
     /**

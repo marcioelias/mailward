@@ -6,6 +6,7 @@ namespace App\Actions\Mailboxes;
 
 use App\Models\Mail\Mailbox;
 use App\Support\Audit\Audit;
+use App\Support\Authorization\LastGlobalAdminGuard;
 use App\Support\Storage\MaildirGenerator;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -34,6 +35,13 @@ final class DeleteMailboxAction
 
         $removed = DB::connection('vmail')->transaction(function () use ($mailbox, $address, $domain): array {
             $vmail = DB::connection('vmail');
+
+            /*
+             * BR-A01 names three verbs — demoted, deactivated or deleted — and
+             * this is one of them. Asserted inside the transaction with the
+             * rows locked, so the refusal and the rollback are one event.
+             */
+            LastGlobalAdminGuard::assertNotTheLast($address);
 
             $this->recordDeletion($mailbox, $address, $domain);
 

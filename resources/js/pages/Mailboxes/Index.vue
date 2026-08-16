@@ -193,6 +193,19 @@ const confirmDeletion = (): void => {
                         >
                             Password
                         </Link>
+                        <!--
+                            Aliases and forwardings are the contents of one
+                            account, so they live under it rather than in a
+                            list of their own — and they are two labelled
+                            concepts on that screen, never one merged
+                            "forwardings" list (docs/02-domain.md §5).
+                        -->
+                        <Link
+                            :href="`/mailboxes/${row.username}/routing`"
+                            class="me-btn me-btn--ghost me-btn--sm"
+                        >
+                            Aliases
+                        </Link>
                         <MeButton
                             variant="ghost"
                             size="sm"

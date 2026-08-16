@@ -6,6 +6,7 @@ namespace App\Actions\Mailboxes;
 
 use App\Models\Mail\Mailbox;
 use App\Support\Audit\Audit;
+use App\Support\Authorization\LastGlobalAdminGuard;
 use App\Support\PasswordScheme\SchemeRegistry;
 use Illuminate\Support\Facades\DB;
 
@@ -30,6 +31,16 @@ final class UpdateMailboxAction
         unset($attributes['username'], $attributes['domain'], $attributes['password']);
 
         DB::connection('vmail')->transaction(function () use ($mailbox, $attributes): void {
+            /*
+             * Deactivating is one of the three verbs BR-A01 names, alongside
+             * demoting and deleting. Switching off the last global admin's
+             * account locks the organisation out through a screen that never
+             * mentions administrators.
+             */
+            if (array_key_exists('active', $attributes) && ! $attributes['active']) {
+                LastGlobalAdminGuard::assertNotTheLast((string) $mailbox->getKey());
+            }
+
             $mailbox->fill($attributes);
             $mailbox->setAttribute('modified', now());
 

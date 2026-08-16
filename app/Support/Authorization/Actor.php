@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Support\Authorization;
 
+use App\Models\Mail\DomainAdmin;
 use App\Models\Mail\Mailbox;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -76,7 +77,7 @@ final class Actor
         $domains = DB::connection('vmail')
             ->table('domain_admins')
             ->where('username', $address)
-            ->where('domain', '<>', 'ALL')
+            ->where('domain', '<>', DomainAdmin::ALL_DOMAINS)
 
             /*
              * A suspended or expired grant confers nothing (Q1, answered

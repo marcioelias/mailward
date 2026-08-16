@@ -14,7 +14,7 @@ function signedInAdministrator(): Mailbox
 
 it('renders the status page with the mail backend it found', function () {
     $this->actingAs(signedInAdministrator())
-        ->get('/')->assertOk()->assertInertia(
+        ->get('/status')->assertOk()->assertInertia(
             fn (AssertableInertia $page) => $page
                 ->component('Status')
                 ->where('backend.connected', true)
@@ -33,7 +33,7 @@ it('reports a clear failure instead of erroring when the backend is unreachable'
     Config::set('database.connections.vmail.port', '1');
 
     $this->actingAs(signedInAdministrator())
-        ->get('/')->assertOk()->assertInertia(
+        ->get('/status')->assertOk()->assertInertia(
             fn (AssertableInertia $page) => $page
                 ->component('Status')
                 ->where('backend.connected', false)
@@ -46,5 +46,5 @@ it('sends a guest to the login form instead of rendering the panel', function ()
     // exposed how many domains and mailboxes the server holds, to anyone.
     auth()->logout();
 
-    $this->get('/')->assertRedirect('/login');
+    $this->get('/status')->assertRedirect('/login');
 });

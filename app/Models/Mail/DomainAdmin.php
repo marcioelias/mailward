@@ -37,6 +37,22 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  */
 final class DomainAdmin extends MailModel
 {
+    /**
+     * The `domain` value standing for "every domain", rather than a real one.
+     *
+     * A global admin is represented twice: `mailbox.isglobaladmin = 1` and a
+     * row here carrying this sentinel (`docs/features/domain-admins.md` BR-04).
+     * It names no row in `domain`, so every query correlating the two tables
+     * must exclude it or a global admin's domain list silently returns zero
+     * rows (BR-05).
+     *
+     * **Sourced from iRedMail's own documentation and not verified against a
+     * running install** — OQ-DA-09, and OQ-DA-05 for the literal casing. If the
+     * verification refutes it, BR-04 and BR-05 both change and so does every
+     * read of this constant.
+     */
+    public const ALL_DOMAINS = 'ALL';
+
     protected $table = 'domain_admins';
 
     protected $primaryKey = 'username';

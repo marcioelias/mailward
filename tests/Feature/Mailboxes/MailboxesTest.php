@@ -342,3 +342,60 @@ describe('the password screen (BR-31 to BR-36)', function () {
             );
     });
 });
+
+describe('the lockout rule covers all three verbs (BR-A01)', function () {
+    /**
+     * The rule names demoted, deactivated *or* deleted. It lived in the
+     * demotion action only, which left a global admin able to switch off or
+     * remove the last global admin's account through a screen that never
+     * mentions administrators.
+     */
+    function onlyGlobalAdmin(): void
+    {
+        makeDomain('example.test');
+
+        DB::connection('vmail')->table('mailbox')->insert([
+            'username' => 'root@example.test', 'domain' => 'example.test',
+            'password' => '{PLAIN}x', 'isglobaladmin' => 1, 'isadmin' => 1, 'active' => 1,
+            'created' => now(), 'modified' => now(), 'expired' => '9999-12-31 00:00:00',
+        ]);
+    }
+
+    it('refuses to deactivate the only global admin', function () {
+        onlyGlobalAdmin();
+
+        $this->actingAs(globalAdmin())
+            ->post('/mailboxes/root@example.test/active', ['active' => false]);
+
+        expect(DB::connection('vmail')->table('mailbox')
+            ->where('username', 'root@example.test')->value('active'))->toEqual(1);
+    });
+
+    it('refuses to delete the only global admin', function () {
+        onlyGlobalAdmin();
+
+        $this->actingAs(globalAdmin())->delete('/mailboxes/root@example.test');
+
+        expect(DB::connection('vmail')->table('mailbox')
+            ->where('username', 'root@example.test')->count())->toBe(1)
+            // And nothing partial was written on the way to the refusal.
+            ->and(DB::connection('vmail')->table('deleted_mailboxes')
+                ->where('username', 'root@example.test')->count())->toBe(0);
+    });
+
+    it('allows it once a second global admin exists', function () {
+        onlyGlobalAdmin();
+
+        DB::connection('vmail')->table('mailbox')->insert([
+            'username' => 'second@example.test', 'domain' => 'example.test',
+            'password' => '{PLAIN}x', 'isglobaladmin' => 1, 'isadmin' => 1, 'active' => 1,
+            'created' => now(), 'modified' => now(), 'expired' => '9999-12-31 00:00:00',
+        ]);
+
+        $this->actingAs(globalAdmin())
+            ->post('/mailboxes/root@example.test/active', ['active' => false]);
+
+        expect(DB::connection('vmail')->table('mailbox')
+            ->where('username', 'root@example.test')->value('active'))->toEqual(0);
+    });
+});

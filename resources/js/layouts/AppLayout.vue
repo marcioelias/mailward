@@ -24,7 +24,16 @@ const isCurrent = (route: string): boolean =>
     currentPath.value === route || currentPath.value.startsWith(`${route}/`);
 
 const actor = computed(
-    () => (page.props as { actor?: { address?: string; name?: string } }).actor,
+    () =>
+        (
+            page.props as {
+                actor?: {
+                    address?: string;
+                    name?: string;
+                    isGlobalAdmin?: boolean;
+                };
+            }
+        ).actor,
 );
 
 const signOut = (): void => {
@@ -41,23 +50,23 @@ const signOut = (): void => {
 <template>
     <MeAdminLayout :heading="title" :subheading="subtitle">
         <template #brand>
-            <MeBrand :as="Link" href="/" name="Mailward" />
+            <MeBrand :as="Link" href="/dashboard" name="Mailward" />
         </template>
 
         <template #nav>
             <MeNavItem
                 :as="Link"
-                href="/"
-                icon="home"
-                :active="currentPath === '/'"
+                href="/dashboard"
+                icon="layout-dashboard"
+                :active="isCurrent('/dashboard')"
             >
-                Status
+                Dashboard
             </MeNavItem>
 
             <MeNavItem
                 :as="Link"
                 href="/domains"
-                icon="mail"
+                icon="home"
                 :active="isCurrent('/domains')"
             >
                 Domains
@@ -66,10 +75,19 @@ const signOut = (): void => {
             <MeNavItem
                 :as="Link"
                 href="/mailboxes"
-                icon="users"
+                icon="user"
                 :active="isCurrent('/mailboxes')"
             >
                 Mailboxes
+            </MeNavItem>
+
+            <MeNavItem
+                :as="Link"
+                href="/aliases"
+                icon="mail"
+                :active="isCurrent('/aliases')"
+            >
+                Aliases
             </MeNavItem>
 
             <MeNavItem
@@ -79,6 +97,39 @@ const signOut = (): void => {
                 :active="isCurrent('/alias-domains')"
             >
                 Alias domains
+            </MeNavItem>
+
+            <MeNavItem
+                :as="Link"
+                href="/admins"
+                icon="users"
+                :active="isCurrent('/admins')"
+            >
+                Administrators
+            </MeNavItem>
+
+            <!--
+                Global admins only, matching the policy. Hiding it is for the
+                UI's sake; the server refuses the route regardless of what the
+                menu offered (docs/policies/authorization.md §4).
+            -->
+            <MeNavItem
+                v-if="actor?.isGlobalAdmin"
+                :as="Link"
+                href="/audit-log"
+                icon="clock"
+                :active="isCurrent('/audit-log')"
+            >
+                Audit log
+            </MeNavItem>
+
+            <MeNavItem
+                :as="Link"
+                href="/status"
+                icon="server-crash"
+                :active="isCurrent('/status')"
+            >
+                Server status
             </MeNavItem>
         </template>
 

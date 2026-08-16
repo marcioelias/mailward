@@ -40,6 +40,29 @@ final class DomainAllowance
     }
 
     /**
+     * Remaining standalone alias slots, or null when the domain is unlimited.
+     *
+     * `domain.aliases` counts the rows the aliases feature creates and only
+     * those: `alias` rows whose `domain` is this domain
+     * (`docs/features/aliases.md` BR-06, BR-15). Per-account aliases are
+     * `forwardings` rows and alias domains are `alias_domain` rows; neither
+     * consumes this budget, so neither table is queried here.
+     */
+    public static function aliases(string $domain): ?int
+    {
+        $limit = (int) DB::connection('vmail')->table('domain')
+            ->where('domain', $domain)->value('aliases');
+
+        if ($limit <= 0) {
+            return null;
+        }
+
+        $used = DB::connection('vmail')->table('alias')->where('domain', $domain)->count();
+
+        return max(0, $limit - $used);
+    }
+
+    /**
      * Remaining quota pool in MiB, or null when the domain is unlimited.
      *
      * @param  string|null  $excluding  an address whose current quota does not count

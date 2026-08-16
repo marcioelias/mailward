@@ -70,4 +70,26 @@ return [
         'retention_days' => env('MAILWARD_AUDIT_RETENTION_DAYS'),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Dashboard
+    |--------------------------------------------------------------------------
+    |
+    | How many days without a login make an account dormant
+    | (docs/features/dashboard.md BR-20). The last login is the greater of
+    | `last_login.imap` and `last_login.pop3`; `lda` is excluded, because it
+    | records a delivery into the account rather than a person connecting to
+    | it, and an account nobody has read for two years looks active under it
+    | for as long as anything still sends mail there.
+    |
+    | Ninety days has no external basis. It is a chosen number, which is why
+    | the dashboard states the threshold in force beside the figure instead of
+    | leaving the reader to guess which one produced it.
+    |
+    */
+
+    'dashboard' => [
+        'dormant_after_days' => env('MAILWARD_DORMANT_AFTER_DAYS', 90),
+    ],
+
 ];
